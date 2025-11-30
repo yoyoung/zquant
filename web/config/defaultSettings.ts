@@ -1,0 +1,59 @@
+// Copyright 2025 ZQuant Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Author: kevin
+// Contact:
+//     - Email: kevin@vip.qq.com
+//     - Wechat: zquant2025
+//     - Issues: https://github.com/zquant/zquant/issues
+//     - Documentation: https://docs.zquant.com
+//     - Repository: https://github.com/zquant/zquant
+
+import type { ProLayoutProps } from '@ant-design/pro-components';
+
+/**
+ * @name
+ */
+const Settings: ProLayoutProps & {
+  pwa?: boolean;
+  logo?: string;
+} = {
+  navTheme: 'dark', // 顶部导航栏使用深色主题
+  // 拂晓蓝
+  colorPrimary: '#1890ff',
+  layout: 'mix',
+  contentWidth: 'Fluid',
+  fixedHeader: true, // 固定顶部导航栏
+  fixSiderbar: true,
+  colorWeak: false,
+  title: 'ZQuant',
+  pwa: true,
+  logo: '/logo.svg',
+  iconfontUrl: '',
+  token: {
+    // 顶部导航栏样式配置
+    header: {
+      colorBgHeader: '#096dd9', // 深蓝色背景
+      colorHeaderTitle: '#fff',
+      colorTextMenu: 'rgba(255, 255, 255, 0.85)',
+      colorTextMenuSecondary: 'rgba(255, 255, 255, 0.65)',
+      colorTextMenuSelected: '#fff',
+      colorBgMenuItemSelected: 'rgba(255, 255, 255, 0.1)',
+    },
+    // 参见ts声明，demo 见文档，通过token 修改样式
+    //https://procomponents.ant.design/components/layout#%E9%80%9A%E8%BF%87-token-%E4%BF%AE%E6%94%B9%E6%A0%B7%E5%BC%8F
+  },
+};
+
+export default Settings;

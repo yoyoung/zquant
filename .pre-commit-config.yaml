@@ -1,0 +1,117 @@
+# Copyright 2025 ZQuant Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Author: kevin
+# Contact:
+#     - Email: kevin@vip.qq.com
+#     - Wechat: zquant2025
+#     - Issues: https://github.com/zquant/zquant/issues
+#     - Documentation: https://docs.zquant.com
+#     - Repository: https://github.com/zquant/zquant
+
+# Pre-commit hooks 配置
+# 文档: https://pre-commit.com/
+
+repos:
+  # Ruff - 代码检查和格式化
+  # 使用本地安装的 ruff（避免网络问题）
+  - repo: local
+    hooks:
+      # Ruff 代码检查
+      - id: ruff
+        name: ruff (lint)
+        entry: python -m ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: true
+        args: [--exit-non-zero-on-fix]
+      # Ruff 代码格式化
+      - id: ruff-format
+        name: ruff (format)
+        entry: python -m ruff format
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: true
+
+  # Black - 代码格式化（可选，ruff format 已兼容）
+  # 如果只使用 ruff，可以注释掉这个
+  # - repo: https://github.com/psf/black
+  #   rev: 23.12.1
+  #   hooks:
+  #     - id: black
+  #       language_version: python3.11
+  #       args: [--line-length=120]
+
+  # isort - 导入排序（可选，ruff 已内置 isort 功能）
+  # 如果只使用 ruff，可以注释掉这个
+  # - repo: https://github.com/PyCQA/isort
+  #   rev: 5.13.2
+  #   hooks:
+  #     - id: isort
+  #       args: [--profile=black, --line-length=120]
+
+  # 通用文件检查（需要从 GitHub 下载，如果网络有问题可以暂时注释掉）
+  # 如果网络正常，可以取消注释使用这些检查
+  # - repo: https://github.com/pre-commit/pre-commit-hooks
+  #   rev: v4.5.0
+  #   hooks:
+  #     - id: trailing-whitespace
+  #       name: 移除行尾空白
+  #     - id: end-of-file-fixer
+  #       name: 确保文件末尾有换行
+  #     - id: check-yaml
+  #       name: 检查 YAML 语法
+  #       args: [--unsafe]  # 允许自定义标签
+  #     - id: check-json
+  #       name: 检查 JSON 语法
+  #     - id: check-toml
+  #       name: 检查 TOML 语法
+  #     - id: check-added-large-files
+  #       name: 检查大文件
+  #       args: [--maxkb=1000]
+  #     - id: check-merge-conflict
+  #       name: 检查合并冲突标记
+  #     - id: check-case-conflict
+  #       name: 检查文件名大小写冲突
+  #     - id: detect-private-key
+  #       name: 检测私钥文件
+  #     - id: mixed-line-ending
+  #       name: 统一行尾符
+  #       args: [--fix=lf]  # 使用 LF
+
+# 默认配置
+# 使用系统 Python 版本（自动检测）
+# 如果指定版本，请确保系统中已安装对应版本
+default_language_version:
+  python: system  # 使用系统默认 Python，或改为 python3.12 如果系统是 3.12
+
+# 排除的文件和目录
+exclude: |
+  (?x)^(
+      \.git/|
+      \.venv/|
+      venv/|
+      __pycache__/|
+      \.pytest_cache/|
+      \.ruff_cache/|
+      \.mypy_cache/|
+      node_modules/|
+      dist/|
+      build/|
+      \.eggs/|
+      alembic/versions/.*\.py$|
+      \.idea/|
+      \.vscode/
+  )
+

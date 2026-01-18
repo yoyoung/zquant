@@ -22,6 +22,7 @@
 
 import { ProTable } from '@ant-design/pro-components';
 import { Button, Tag, Popconfirm, message, Modal, Form, Input, Switch, Select, InputNumber } from 'antd';
+import SelectWithAll from '@/components/SelectWithAll';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -220,9 +221,10 @@ const FactorModels: React.FC = () => {
       >
         <Form form={form} layout="vertical">
           <Form.Item name="factor_id" label="因子" rules={[{ required: true, message: '请选择因子' }]}>
-            <Select
+            <SelectWithAll
               placeholder="选择因子"
               options={factorDefinitions.map((f) => ({ label: `${f.cn_name} (${f.factor_name})`, value: f.id }))}
+              allValue=""
             />
           </Form.Item>
           <Form.Item name="model_name" label="模型名称" rules={[{ required: true, message: '请输入模型名称' }]}>

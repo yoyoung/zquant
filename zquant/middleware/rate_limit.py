@@ -30,6 +30,7 @@ import time
 from typing import Dict
 
 from fastapi import HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -180,9 +181,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             
             if not allowed_minute:
                 logger.warning(f"登录速率限制：{client_id} 超过每分钟限制 ({login_requests_per_minute})")
-                raise HTTPException(
+                return JSONResponse(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"登录请求过于频繁，请稍后再试。每分钟最多{login_requests_per_minute}次登录尝试。",
+                    content={
+                        "detail": f"登录请求过于频繁，请稍后再试。每分钟最多{login_requests_per_minute}次登录尝试。"
+                    },
                     headers={
                         "X-RateLimit-Limit": str(login_requests_per_minute),
                         "X-RateLimit-Remaining": "0",
@@ -197,9 +200,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             
             if not allowed_hour:
                 logger.warning(f"登录速率限制：{client_id} 超过每小时限制 ({login_requests_per_hour})")
-                raise HTTPException(
+                return JSONResponse(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"登录请求过于频繁，请稍后再试。每小时最多{login_requests_per_hour}次登录尝试。",
+                    content={
+                        "detail": f"登录请求过于频繁，请稍后再试。每小时最多{login_requests_per_hour}次登录尝试。"
+                    },
                     headers={
                         "X-RateLimit-Limit": str(login_requests_per_hour),
                         "X-RateLimit-Remaining": "0",
@@ -224,9 +229,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if not allowed_minute:
             logger.warning(f"速率限制：{client_id} 超过每分钟限制 ({self.requests_per_minute})")
-            raise HTTPException(
+            return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"请求过于频繁，请稍后再试。每分钟最多{self.requests_per_minute}次请求。",
+                content={
+                    "detail": f"请求过于频繁，请稍后再试。每分钟最多{self.requests_per_minute}次请求。"
+                },
                 headers={
                     "X-RateLimit-Limit": str(self.requests_per_minute),
                     "X-RateLimit-Remaining": "0",
@@ -239,9 +246,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if not allowed_hour:
             logger.warning(f"速率限制：{client_id} 超过每小时限制 ({self.requests_per_hour})")
-            raise HTTPException(
+            return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"请求过于频繁，请稍后再试。每小时最多{self.requests_per_hour}次请求。",
+                content={
+                    "detail": f"请求过于频繁，请稍后再试。每小时最多{self.requests_per_hour}次请求。"
+                },
                 headers={
                     "X-RateLimit-Limit": str(self.requests_per_hour),
                     "X-RateLimit-Remaining": "0",

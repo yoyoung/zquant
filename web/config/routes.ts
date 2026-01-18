@@ -128,6 +128,24 @@ export default [
         component: './watchlist/strategy-stocks',
       },
       {
+        path: '/watchlist/strategy-stocks/factors',
+        name: 'strategy-stock-factors',
+        component: './watchlist/strategy-stocks/factors',
+        hideInMenu: true,
+      },
+      {
+        path: '/watchlist/strategy-stocks/kline',
+        name: 'strategy-stock-kline',
+        component: './watchlist/strategy-stocks/kline',
+        hideInMenu: true,
+      },
+      {
+        path: '/watchlist/strategy-stocks/model-eval',
+        name: 'strategy-stock-model-eval',
+        component: './watchlist/strategy-stocks/model-eval',
+        hideInMenu: true,
+      },
+      {
         path: '/watchlist/quick-access',
         name: 'quick-access',
         component: './watchlist/quick-access',
@@ -154,6 +172,11 @@ export default [
         path: '/factor/models',
         name: 'models',
         component: './factor/models',
+      },
+      {
+        path: '/factor/model-eval',
+        name: 'model-eval',
+        component: './watchlist/strategy-stocks/model-eval',
       },
       {
         path: '/factor/configs',

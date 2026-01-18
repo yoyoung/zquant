@@ -20,6 +20,9 @@ wheels/
 .installed.cfg
 *.egg
 
+.cursor/
+.shared/
+
 # Virtual Environment
 venv/
 ENV/
@@ -61,4 +64,7 @@ zquant/alembic/versions/*.py
 
 # Todo目录（不上传到GitHub）
 todo/
+
+# 模型文件
+ml_artifacts/
 

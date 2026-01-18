@@ -20,7 +20,8 @@
 //     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
 //     - Repository: https://github.com/yoyoung/zquant
 
-import { ProForm, ProFormDatePicker, ProFormSelect, ProFormText } from '@ant-design/pro-components';
+import { ProForm, ProFormDatePicker, ProFormText } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import type { ProFormInstance } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -503,7 +504,7 @@ const Fundamentals: React.FC = () => {
           rules={[{ required: true, message: '请输入TS代码' }]}
           width="md"
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="statement_type"
           label="报表类型"
           options={[
@@ -511,6 +512,7 @@ const Fundamentals: React.FC = () => {
             { label: '资产负债表', value: 'balance' },
             { label: '现金流量表', value: 'cashflow' },
           ]}
+          allValue=""
           width="sm"
         />
         <ProFormDatePicker

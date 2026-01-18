@@ -68,8 +68,8 @@ class Settings(BaseSettings):
 
     # 速率限制配置
     RATE_LIMIT_ENABLED: bool = True  # 是否启用速率限制
-    RATE_LIMIT_PER_MINUTE: int = 60  # 每分钟允许的请求数
-    RATE_LIMIT_PER_HOUR: int = 1000  # 每小时允许的请求数
+    RATE_LIMIT_PER_MINUTE: int = 600  # 每分钟允许的请求数
+    RATE_LIMIT_PER_HOUR: int = 60000  # 每小时允许的请求数
 
     # JWT配置
     SECRET_KEY: str | None = Field(
@@ -97,6 +97,12 @@ class Settings(BaseSettings):
 
     # 定时任务调度器配置
     SCHEDULER_THREAD_POOL_SIZE: int = 50  # 定时任务线程池大小，默认50个线程（支持更多并发任务）
+
+    # 交易所配置
+    DEFAULT_EXCHANGES: list[str] = Field(
+        default_factory=lambda: ["SSE", "SZSE"],
+        description="默认处理的交易所列表，如：['SSE', 'SZSE', 'BJ']"
+    )
 
     # 回测默认配置
     DEFAULT_INITIAL_CAPITAL: float = 1000000.0
@@ -150,11 +156,12 @@ if not _settings.SECRET_KEY:
     else:
         # 开发/测试环境：生成随机密钥并警告
         _settings.SECRET_KEY = secrets.token_urlsafe(32)
-        warnings.warn(
-            "警告: SECRET_KEY未设置，已自动生成随机密钥（每次启动都会不同）。"
+        # 使用 logger 记录警告，而不是 warnings.warn，避免输出到 stderr 影响脚本执行
+        from loguru import logger
+        logger.warning(
+            "SECRET_KEY未设置，已自动生成随机密钥（每次启动都会不同）。"
             "生产环境必须设置SECRET_KEY环境变量，否则JWT token可能被伪造！"
-            "设置方法: export SECRET_KEY='your-secret-key-here'",
-            UserWarning
+            "设置方法: export SECRET_KEY='your-secret-key-here'"
         )
 
 settings = _settings

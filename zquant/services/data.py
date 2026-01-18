@@ -203,21 +203,22 @@ class DataService:
 
     @staticmethod
     def get_stock_list(
-        db: Session, exchange: str | None = None, symbol: str | None = None, name: str | None = None
+        db: Session, exchange: str | None = None, symbol: str | list[str] | None = None, ts_code: str | list[str] | None = None, name: str | None = None
     ) -> list[dict]:
         """
         获取股票列表（返回所有字段）
 
         Args:
             exchange: 交易所代码，精确查询，如：SSE=上交所，SZSE=深交所
-            symbol: 股票代码，精确查询，如：000001
+            symbol: 股票代码，单个代码如：000001，多个代码如：['000001', '600004']，None表示查询所有
+            ts_code: TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '600004.SZ']，None表示查询所有
             name: 股票名称，模糊查询
         """
         # 使用Repository查询
         from zquant.repositories.stock_repository import StockRepository
 
         stock_repo = StockRepository(db)
-        stocks = stock_repo.get_stock_list(exchange=exchange, symbol=symbol, name=name)
+        stocks = stock_repo.get_stock_list(exchange=exchange, symbol=symbol, ts_code=ts_code, name=name)
         
         # 默认按TS代码升序排序
         stocks.sort(key=lambda x: x.get("ts_code", ""))

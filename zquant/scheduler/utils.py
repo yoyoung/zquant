@@ -96,6 +96,7 @@ def update_execution_progress(
     current_item: str | None = None,
     progress_percent: float | None = None,
     message: str | None = None,
+    extra_result_data: dict[str, Any] | None = None,
 ):
     """
     更新执行进度并检查控制标志
@@ -108,6 +109,7 @@ def update_execution_progress(
         current_item: 当前处理数据标识
         progress_percent: 进度百分比
         message: 进度消息
+        extra_result_data: 额外的结果数据，将合并到 result_json 中
     """
     if not execution:
         return
@@ -187,6 +189,10 @@ def update_execution_progress(
     result["total_items"] = execution.total_items
     if execution.current_item:
         result["current_item"] = execution.current_item
+    
+    # 合并额外的结果数据（如成功、失败计数等，用于断点恢复）
+    if extra_result_data:
+        result.update(extra_result_data)
 
     execution.set_result(result)
     db.commit()

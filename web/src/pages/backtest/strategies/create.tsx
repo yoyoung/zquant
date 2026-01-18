@@ -20,7 +20,8 @@
 //     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
 //     - Repository: https://github.com/yoyoung/zquant
 
-import { ProForm, ProFormText, ProFormTextArea, ProFormSelect } from '@ant-design/pro-components';
+import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import { Card, message, Button, Space } from 'antd';
 import { history } from '@umijs/max';
 import React, { useEffect, useState, useMemo } from 'react';
@@ -153,7 +154,7 @@ const CreateStrategy: React.FC = () => {
           width="md"
           placeholder="请输入策略名称"
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="category"
           label="策略分类"
           placeholder="请选择策略分类"
@@ -162,6 +163,7 @@ const CreateStrategy: React.FC = () => {
             { label: '基本面', value: 'fundamental' },
             { label: '量化策略', value: 'quantitative' },
           ]}
+          allValue=""
           width="md"
           extra="选择策略所属的分类，选择后策略模板将只显示该分类的模板"
           fieldProps={{
@@ -180,7 +182,7 @@ const CreateStrategy: React.FC = () => {
           }}
           width="md"
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="template_strategy"
           label="策略模板"
           placeholder="选择策略模板（可选）"
@@ -188,6 +190,7 @@ const CreateStrategy: React.FC = () => {
             label: `${t.name}${t.description ? ` - ${t.description}` : ''}`,
             value: t.id,
           }))}
+          allValue=""
           fieldProps={{
             onChange: (value: number) => {
               if (value) {

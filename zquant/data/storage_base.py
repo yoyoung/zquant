@@ -29,7 +29,7 @@
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import inspect as sql_inspect
+from sqlalchemy import String, Text, inspect as sql_inspect
 from sqlalchemy.dialects import mysql
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.orm import Session
@@ -47,27 +47,32 @@ def log_sql_statement(stmt: Any, params: dict | None = None) -> None:
         stmt: SQLAlchemy语句对象或SQL字符串
         params: 参数化查询的参数（可选）
     """
+
+    def _log_truncated_sql(sql: str):
+        if len(sql) > 1000:
+            logger.info(f"[SQL] {sql[:1000]} ... (内容过长，已省略 {len(sql) - 1000} 字符)")
+        else:
+            logger.info(f"[SQL] {sql}")
+
     try:
         if isinstance(stmt, str):
             # 原生SQL字符串
             sql_str = stmt
+            _log_truncated_sql(sql_str)
             if params:
-                logger.info(f"[SQL] {sql_str}")
                 logger.info(f"[SQL Params] {params}")
-            else:
-                logger.info(f"[SQL] {sql_str}")
         elif hasattr(stmt, "compile"):
             # SQLAlchemy语句对象
             # 使用MySQL方言编译，获取更准确的SQL
             compiled = stmt.compile(dialect=mysql.dialect(), compile_kwargs={"literal_binds": True})
             sql_str = str(compiled)
-            logger.info(f"[SQL] {sql_str}")
+            _log_truncated_sql(sql_str)
             if params:
                 logger.info(f"[SQL Params] {params}")
         else:
             # 其他类型，尝试转换为字符串
             sql_str = str(stmt)
-            logger.info(f"[SQL] {sql_str}")
+            _log_truncated_sql(sql_str)
             if params:
                 logger.info(f"[SQL Params] {params}")
     except Exception as e:
@@ -104,7 +109,11 @@ def ensure_table_exists(db: Session, model_class, table_name: str | None = None)
 
 
 def build_update_dict(
-    stmt: insert, update_fields: list[str], extra_info: dict[str, Any] | None = None, include_updated_time: bool = True
+    stmt: insert,
+    update_fields: list[str],
+    extra_info: dict[str, Any] | None = None,
+    include_updated_time: bool = True,
+    skip_null_fields: bool = False,
 ) -> dict[str, Any]:
     """
     构建ON DUPLICATE KEY UPDATE的更新字典
@@ -114,6 +123,7 @@ def build_update_dict(
         update_fields: 需要更新的字段列表
         extra_info: 额外信息字典，可包含updated_by字段
         include_updated_time: 是否包含updated_time字段
+        skip_null_fields: 是否跳过空值字段（当为True时，空值字段不会更新数据库列，保留原有值）
 
     Returns:
         更新字典
@@ -121,9 +131,32 @@ def build_update_dict(
     update_dict = {}
 
     # 添加需要更新的字段
-    for field in update_fields:
-        if hasattr(stmt.inserted, field):
-            update_dict[field] = getattr(stmt.inserted, field)
+    if skip_null_fields:
+        # 使用条件更新：只有当字段值非空时才更新
+        for field in update_fields:
+            if hasattr(stmt.inserted, field):
+                # 获取列对象和插入值对象
+                # stmt.table.c.field 代表原有的列，stmt.inserted.field 代表准备插入的值
+                col = getattr(stmt.table.c, field)
+                inserted_val = getattr(stmt.inserted, field)
+
+                # 根据列类型决定判断逻辑
+                # 对于字符串类型，判断非 NULL 且非空字符串
+                # 对于其他类型（如 Date, Numeric），仅判断非 NULL，避免类型转换错误
+                is_string_type = isinstance(col.type, (String, Text))
+
+                if is_string_type:
+                    condition = (inserted_val != None) & (inserted_val != "")
+                else:
+                    condition = inserted_val != None
+
+                # 使用 SQLAlchemy 的 func.if_ 构建条件逻辑
+                update_dict[field] = func.if_(condition, inserted_val, col)
+    else:
+        # 原有逻辑：直接更新所有字段
+        for field in update_fields:
+            if hasattr(stmt.inserted, field):
+                update_dict[field] = getattr(stmt.inserted, field)
 
     # 添加updated_time
     if include_updated_time:

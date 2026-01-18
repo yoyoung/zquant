@@ -29,6 +29,7 @@ bcrypt==3.2.2
 tushare==1.2.89
 pandas==2.1.3
 numpy==1.26.2
+torch==2.2.2
 
 # Configuration Management
 python-dotenv==1.0.0
@@ -43,6 +44,8 @@ aiohttp==3.9.1
 # Utility Libraries
 python-dateutil==2.8.2
 pytz==2023.3
+pyqlib==0.9.7
+scipy==1.11.3
 
 # Testing
 pytest==7.4.3

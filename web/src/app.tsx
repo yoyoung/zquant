@@ -373,6 +373,27 @@ export const layout: RunTimeLayoutConfig = ({
     // 增加一个 loading 的状态
     childrenRender: (children) => {
       // if (initialState?.loading) return <PageLoading />;
+      const { location } = history;
+      
+      // 公开页面列表（不需要布局的页面）
+      const publicPaths = [
+        loginPath,
+        '/user/register',
+        '/user/register-result',
+        '/legal/user-agreement',
+        '/legal/disclaimer',
+      ];
+      
+      // 如果是公开页面，不包裹 GlobalTabsProvider 和 SettingDrawer
+      if (publicPaths.includes(location.pathname)) {
+        return (
+          <AntdApp>
+            {children}
+          </AntdApp>
+        );
+      }
+      
+      // 其他页面保持原有逻辑
       return (
         <AntdApp>
           <GlobalTabsProvider>

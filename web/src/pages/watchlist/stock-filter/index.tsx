@@ -25,10 +25,10 @@ import {
   ProFormCheckbox,
   ProFormDatePicker,
   ProFormInstance,
-  ProFormSelect,
   ProFormText,
   ProTable,
 } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import {
   Button,
@@ -438,11 +438,12 @@ const StockFilter: React.FC = () => {
             initialValue={dayjs()}
             rules={[{ required: true, message: '请选择交易日期' }]}
           />
-          <ProFormSelect
+          <ProFormSelectWithAll
             name="strategy"
             label="策略模板"
             width="sm"
             options={strategies.map((s) => ({ label: s.name, value: s.id }))}
+            allValue=""
             placeholder="选择策略模板"
             onChange={(value: any) => {
               if (value) {
@@ -831,11 +832,12 @@ const StockFilter: React.FC = () => {
           onFinish={handleSaveStrategy}
           initialValues={editingStrategy}
         >
-          <ProFormSelect
+          <ProFormSelectWithAll
             name="name"
             label="策略名称"
-            rules={[{ required: true, message: '请输入策略名称' }]}
             options={strategies.map((s) => ({ label: s.name, value: s.name }))}
+            allValue=""
+            rules={[{ required: true, message: '请输入策略名称' }]}
             placeholder="输入或选择策略名称"
           />
           <ProFormText

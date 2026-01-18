@@ -194,7 +194,7 @@ class ScriptExecutor(TaskExecutor):
             stderr_thread.start()
 
             # 等待进程完成，带轮询检查终止请求
-            poll_interval = 2  # 秒
+            poll_interval = 15  # 秒
             returncode = None
             while returncode is None:
                 try:
@@ -266,8 +266,15 @@ class ScriptExecutor(TaskExecutor):
                 error_msg = f"命令执行失败，退出码: {returncode}"
                 logger.warning(f"[脚本执行] {error_msg}")
                 if stderr_text:
-                    logger.warning(f"[脚本执行] 完整错误输出:\n{stderr_text}")
-                raise Exception(f"{error_msg}\n标准错误: {stderr_text}")
+                    # 对错误信息进行截断，防止由于错误信息过长导致写入数据库失败
+                    # 限制在 4000 个字符以内
+                    truncated_stderr = stderr_text
+                    if len(stderr_text) > 4000:
+                        truncated_stderr = stderr_text[:4000] + "\n... (已截断，原始错误过长) ..."
+                    logger.warning(f"[脚本执行] 错误输出(已截断):\n{truncated_stderr}")
+                    raise Exception(f"{error_msg}\n标准错误: {truncated_stderr}")
+                else:
+                    raise Exception(error_msg)
 
             return execution_result
 

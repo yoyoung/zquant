@@ -43,7 +43,14 @@ def seed_data():
         from zquant.models.data import Tustock
 
         # 获取前10只股票
-        stocks = db.query(Tustock).filter(Tustock.delist_date.is_(None)).limit(10).all()
+        from zquant.config import settings
+        query = db.query(Tustock).filter(Tustock.delist_date.is_(None))
+        
+        # 全局交易所过滤
+        if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+            query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+            
+        stocks = query.limit(10).all()
 
         for stock in stocks:
             try:

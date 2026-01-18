@@ -20,7 +20,8 @@
 //     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
 //     - Repository: https://github.com/yoyoung/zquant
 
-import { ProForm, ProFormDatePicker, ProFormText, ProFormTextArea, ProFormDigit, ProFormSelect, ProFormSwitch } from '@ant-design/pro-components';
+import { ProForm, ProFormDatePicker, ProFormText, ProFormTextArea, ProFormDigit, ProFormSwitch } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import { Card, message, Button, Space } from 'antd';
 import { history } from '@umijs/max';
 import React, { useEffect, useState, useMemo } from 'react';
@@ -214,7 +215,7 @@ const CreateBacktest: React.FC = () => {
           rules={[{ required: true, message: '请输入策略名称' }]}
           width="md"
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="strategy_category"
           label="策略分类"
           placeholder="请选择策略分类"
@@ -223,6 +224,7 @@ const CreateBacktest: React.FC = () => {
             { label: '基本面', value: 'fundamental' },
             { label: '量化策略', value: 'quantitative' },
           ]}
+          allValue=""
           width="md"
           extra="选择策略所属的分类，选择后策略模板将只显示该分类的模板"
           fieldProps={{
@@ -232,7 +234,7 @@ const CreateBacktest: React.FC = () => {
             allowClear: true,
           }}
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="template_strategy"
           label="策略模板"
           placeholder="选择策略模板（可选）"
@@ -240,6 +242,7 @@ const CreateBacktest: React.FC = () => {
             label: `${t.name}${t.description ? ` - ${t.description}` : ''}`,
             value: t.id,
           }))}
+          allValue=""
           fieldProps={{
             onChange: (value: number) => {
               if (value) {
@@ -318,15 +321,16 @@ const CreateBacktest: React.FC = () => {
           min={0}
           width="sm"
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="frequency"
           label="频率"
           options={[
             { label: '日线', value: 'daily' },
           ]}
+          allValue=""
           width="sm"
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="adjust_type"
           label="复权类型"
           options={[
@@ -334,6 +338,7 @@ const CreateBacktest: React.FC = () => {
             { label: '后复权', value: 'hfq' },
             { label: '不复权', value: 'None' },
           ]}
+          allValue=""
           width="sm"
         />
         <ProFormDigit

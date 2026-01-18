@@ -89,7 +89,8 @@ class StockListRequest(BaseModel):
     """获取股票列表请求"""
 
     exchange: str | None = Field(None, description="交易所代码，精确查询，如：SSE=上交所，SZSE=深交所")
-    symbol: str | None = Field(None, description="股票代码，精确查询，如：000001")
+    symbol: str | list[str] | None = Field(None, description="股票代码，单个代码如：000001，多个代码如：['000001', '600004']，None表示查询所有")
+    ts_code: str | list[str] | None = Field(None, description="TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '600004.SZ']，None表示查询所有")
     name: str | None = Field(None, description="股票名称，模糊查询")
 
 
@@ -105,6 +106,7 @@ class DailyDataRequest(BaseModel):
     ts_code: str | list[str] | None = Field(None, description="TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有")
     start_date: date | None = Field(None, description="开始日期")
     end_date: date | None = Field(None, description="结束日期")
+    limit: int | None = Field(None, description="限制返回记录数")
     trading_day_filter: str | None = Field("all", description="交易日过滤模式：all=全交易日, has_data=有交易日, no_data=无交易日")
     exchange: str | None = Field(None, description="交易所代码，用于全交易日对齐")
 
@@ -143,6 +145,7 @@ class DailyBasicRequest(BaseModel):
     ts_code: str | list[str] | None = Field(None, description="TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，None表示查询所有")
     start_date: date | None = Field(None, description="开始日期")
     end_date: date | None = Field(None, description="结束日期")
+    limit: int | None = Field(None, description="限制返回记录数")
     trading_day_filter: str | None = Field("all", description="交易日过滤模式：all=全交易日, has_data=有交易日, no_data=无交易日")
     exchange: str | None = Field(None, description="交易所代码，用于全交易日对齐")
 
@@ -427,7 +430,7 @@ class StkFactorProDataResponse(BaseModel):
 class DailyDataFetchRequest(BaseModel):
     """接口数据获取请求"""
 
-    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
     adj: str | None = Field("qfq", description="复权类型：qfq=前复权, hfq=后复权, None=不复权")
@@ -448,7 +451,7 @@ class DailyDataFetchResponse(BaseModel):
 class DailyDataValidateRequest(BaseModel):
     """数据校验请求"""
 
-    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
     adj: str | None = Field("qfq", description="复权类型：qfq=前复权, hfq=后复权, None=不复权")
@@ -488,7 +491,7 @@ class DailyDataValidateResponse(BaseModel):
 class DailyBasicFetchRequest(BaseModel):
     """每日指标接口数据获取请求"""
 
-    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
 
@@ -508,7 +511,7 @@ class DailyBasicFetchResponse(BaseModel):
 class DailyBasicValidateRequest(BaseModel):
     """每日指标数据校验请求"""
 
-    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
 
@@ -532,7 +535,7 @@ class DailyBasicValidateResponse(BaseModel):
 class FactorDataFetchRequest(BaseModel):
     """技术因子接口数据获取请求"""
 
-    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
 
@@ -552,7 +555,7 @@ class FactorDataFetchResponse(BaseModel):
 class FactorDataValidateRequest(BaseModel):
     """技术因子数据校验请求"""
 
-    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
 
@@ -576,7 +579,7 @@ class FactorDataValidateResponse(BaseModel):
 class StkFactorProDataFetchRequest(BaseModel):
     """专业版因子接口数据获取请求"""
 
-    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
 
@@ -596,7 +599,7 @@ class StkFactorProDataFetchResponse(BaseModel):
 class StkFactorProDataValidateRequest(BaseModel):
     """专业版因子数据校验请求"""
 
-    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    ts_codes: str = Field(..., description="TS代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     start_date: date = Field(..., description="开始日期")
     end_date: date = Field(..., description="结束日期")
 
@@ -620,7 +623,7 @@ class StkFactorProDataValidateResponse(BaseModel):
 class FundamentalsFetchRequest(BaseModel):
     """财务数据接口数据获取请求"""
 
-    symbols: str = Field(..., description="股票代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    symbols: str = Field(..., description="股票代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     statement_type: str = Field(..., description="报表类型：income, balance, cashflow")
     start_date: date | None = Field(None, description="开始日期")
     end_date: date | None = Field(None, description="结束日期")
@@ -641,7 +644,7 @@ class FundamentalsFetchResponse(BaseModel):
 class FundamentalsValidateRequest(BaseModel):
     """财务数据校验请求"""
 
-    symbols: str = Field(..., description="股票代码，支持多个，用逗号分隔，如：000001.SZ,000002.SZ")
+    symbols: str = Field(..., description="股票代码，支持多个，用逗号分隔，如：000001.SZ,600004.SH")
     statement_type: str = Field(..., description="报表类型：income, balance, cashflow")
     start_date: date | None = Field(None, description="开始日期")
     end_date: date | None = Field(None, description="结束日期")
@@ -738,3 +741,22 @@ class CalendarValidateResponse(BaseModel):
     difference_count: int = Field(..., description="差异记录数")
     differences: list[DataDifferenceItem] = Field(..., description="差异详情列表")
     consistents: list[DataDifferenceItem] = Field(default_factory=list, description="一致记录列表")
+
+
+class StockIndicatorRequest(BaseModel):
+    """获取技术指标请求"""
+
+    ts_code: str = Field(..., description="TS股票代码")
+    start_date: date | None = Field(None, description="开始日期")
+    end_date: date | None = Field(None, description="结束日期")
+    indicators: list[str] = Field(
+        default=["MACD", "KDJ", "RSI", "SPACEX"], description="请求的指标列表，支持: MACD, KDJ, RSI, BOLL, WR, CCI, SPACEX等"
+    )
+
+
+class StockIndicatorResponse(BaseModel):
+    """技术指标响应"""
+
+    ts_code: str = Field(..., description="TS股票代码")
+    items: list[dict[str, Any]] = Field(..., description="指标数据列表，每项包含日期和计算出的指标值")
+    indicators: list[str] = Field(..., description="返回的指标列表")

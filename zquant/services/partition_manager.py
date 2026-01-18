@@ -124,6 +124,53 @@ class PartitionManager:
             return []
 
     @staticmethod
+    def _get_spacex_factor_columns(db: Session) -> dict[str, Any]:
+        """
+        从 zq_quant_factor_definitions 表获取所有启用的因子列定义
+        如果是组合因子，则展开其所有的子因子列
+        """
+        try:
+            from sqlalchemy import text, inspect, Double
+            from zquant.factor.calculators.factory import create_calculator
+            
+            inspector = inspect(db.get_bind())
+            if "zq_quant_factor_definitions" not in inspector.get_table_names():
+                return {}
+            
+            # 获取所有启用的因子定义
+            query = text("SELECT factor_name, column_name, factor_type FROM zq_quant_factor_definitions WHERE enabled = 1")
+            result = db.execute(query)
+            
+            columns = {}
+            for row in result.fetchall():
+                factor_name, column_name, factor_type = row
+                
+                if factor_type == "组合因子":
+                    # 对于组合因子，通过计算器获取子列清单
+                    try:
+                        # 尝试创建一个临时的计算器实例来获取其输出列定义
+                        # 注意：model_code 映射到 factor_name，或者在 factory 中有专门映射
+                        calculator = create_calculator(factor_name)
+                        sub_columns = calculator.get_output_columns()
+                        if sub_columns:
+                            columns.update(sub_columns)
+                        else:
+                            # 降级处理：如果没有定义子列，使用基础列名
+                            columns[column_name] = Double
+                    except Exception as calc_err:
+                        logger.warning(f"获取组合因子 {factor_name} 子列清单失败: {calc_err}")
+                        columns[column_name] = Double
+                else:
+                    # 普通单因子
+                    if column_name:
+                        columns[column_name] = Double
+            
+            return columns
+        except Exception as e:
+            logger.warning(f"获取因子列定义失败: {e}")
+            return {}
+
+    @staticmethod
     def init_partition_tables_for_codes(db: Session, codes: list[str]) -> dict:
         """
         为指定的股票代码批量初始化所有类型的分表
@@ -148,6 +195,25 @@ class PartitionManager:
         success_count = 0
         failed_codes = []
         details = []
+
+        from zquant.models.data import (
+            create_tustock_daily_class,
+            create_tustock_daily_basic_class,
+            create_tustock_factor_class,
+            create_tustock_stkfactorpro_class,
+            create_spacex_factor_class,
+            get_daily_table_name,
+            get_daily_basic_table_name,
+            get_factor_table_name,
+            get_stkfactorpro_table_name,
+            get_spacex_factor_table_name,
+        )
+        from zquant.database import ensure_table_exists
+
+        # 获取 SpaceX 因子的额外列
+        spacex_columns = PartitionManager._get_spacex_factor_columns(db)
+        if spacex_columns:
+            logger.info(f"初始化 SpaceX 分表将包含 {len(spacex_columns)} 个因子列: {', '.join(spacex_columns.keys())}")
 
         for ts_code in codes:
             code_result = {
@@ -205,10 +271,10 @@ class PartitionManager:
                     code_result["errors"].append(f"StkFactorPro: {str(e)}")
                     logger.warning(f"创建 StkFactorPro 分表失败 {ts_code}: {e}")
 
-                # 5. 创建 SpaceX Factor 分表（基础结构）
+                # 5. 创建 SpaceX Factor 分表（包含因子列）
                 try:
                     spacex_table = get_spacex_factor_table_name(ts_code)
-                    SpacexFactor = create_spacex_factor_class(ts_code)
+                    SpacexFactor = create_spacex_factor_class(ts_code, extra_columns=spacex_columns)
                     if ensure_table_exists(db, SpacexFactor, spacex_table):
                         code_result["spacex_factor"] = True
                         logger.debug(f"✓ 创建 SpaceX Factor 分表: {spacex_table}")
@@ -470,11 +536,7 @@ class PartitionManager:
                     "errors": errors,
                 })
 
-            update_execution_progress(db, execution, processed_items=len(tables), message="列结构同步完成，正在更新视图...")
-            # 5. 更新视图
-            if total_columns_added > 0:
-                logger.info("列结构已变化，更新 SpaceX Factor 视图...")
-                create_or_update_spacex_factor_view(db)
+            update_execution_progress(db, execution, processed_items=len(tables), message="列结构同步完成")
 
             logger.info(f"列同步完成: 处理 {len(tables)} 个表，共添加 {total_columns_added} 个列")
 

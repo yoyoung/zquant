@@ -22,6 +22,7 @@
 
 import { ProTable } from '@ant-design/pro-components';
 import { Button, Tag, Popconfirm, message, Modal, Form, Input, Switch, Select } from 'antd';
+import SelectWithAll from '@/components/SelectWithAll';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import React, { useRef, useState } from 'react';
 import {
@@ -238,10 +239,14 @@ const FactorDefinitions: React.FC = () => {
             initialValue="单因子"
             rules={[{ required: true, message: '请选择因子类型' }]}
           >
-            <Select placeholder="请选择因子类型">
-              <Select.Option value="单因子">单因子</Select.Option>
-              <Select.Option value="组合因子">组合因子</Select.Option>
-            </Select>
+            <SelectWithAll
+              placeholder="请选择因子类型"
+              options={[
+                { label: '单因子', value: '单因子' },
+                { label: '组合因子', value: '组合因子' },
+              ]}
+              allValue=""
+            />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={4} placeholder="因子详细描述" />

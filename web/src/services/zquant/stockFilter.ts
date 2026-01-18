@@ -150,3 +150,44 @@ export async function batchExecuteFilter(body: any) {
   });
 }
 
+/**
+ * 获取因子明细数据
+ * POST /api/v1/stock-filter/factor-details
+ */
+export async function getFactorDetails(body: ZQuant.FactorDetailRequest) {
+  return request<ZQuant.FactorDetailResponse>('/api/v1/stock-filter/factor-details', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+}
+
+/**
+ * 获取技术事件
+ * POST /api/v1/stock-filter/strategy-events
+ */
+export async function getStrategyEvents(body: ZQuant.StrategyEventRequest) {
+  return request<ZQuant.StrategyEventResponse>('/api/v1/stock-filter/strategy-events', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+}
+
+/**
+ * 因子重跑
+ * POST /api/v1/stock-filter/rerun
+ */
+export async function rerunStockFilter(body: ZQuant.StockFilterRerunRequest) {
+  return request<ZQuant.StockFilterRerunResponse>('/api/v1/stock-filter/rerun', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+}

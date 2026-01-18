@@ -169,7 +169,8 @@ declare namespace ZQuant {
 
   type StockListRequest = {
     exchange?: string; // 交易所代码，精确查询，如：SSE=上交所，SZSE=深交所
-    symbol?: string; // 股票代码，精确查询，如：000001
+    symbol?: string | string[]; // 股票代码，单个代码如：000001，多个代码如：['000001', '600004']，undefined表示查询所有
+    ts_code?: string | string[]; // TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '600004.SZ']，undefined表示查询所有
     name?: string; // 股票名称，模糊查询
   };
 
@@ -204,12 +205,15 @@ declare namespace ZQuant {
     ts_code?: string | string[]; // TS代码，单个代码如：000001.SZ，多个代码如：['000001.SZ', '000002.SZ']，undefined表示查询所有
     start_date?: string; // 开始日期，YYYY-MM-DD
     end_date?: string; // 结束日期，YYYY-MM-DD
+    trading_day_filter?: 'all' | 'has_data' | 'no_data'; // 交易日过滤模式：all=全交易日对齐(含缺失), has_data=仅有数据交易日, no_data=仅缺失
+    exchange?: string; // 交易所代码（用于全交易日对齐），如 SSE/SZSE
   };
 
   type DailyDataItem = {
     id?: number; // 记录ID
     ts_code?: string; // TS代码
     trade_date?: string; // 交易日期（ISO格式）
+    is_missing?: boolean; // 是否为交易日占位缺失行
     open?: number; // 开盘价
     high?: number; // 最高价
     low?: number; // 最低价
@@ -453,6 +457,76 @@ declare namespace ZQuant {
     consistents: DataDifferenceItem[];
   };
 
+  type StockIndicatorRequest = {
+    ts_code: string;
+    start_date?: string;
+    end_date?: string;
+    indicators?: string[];
+  };
+
+  type StockIndicatorResponse = {
+    ts_code: string;
+    items: Record<string, any>[];
+    indicators: string[];
+  };
+
+  // ============ 模型评估（最近N日） ============
+  type StockModelEvalRequest = {
+    ts_code: string;
+    days?: number; // 默认10
+    start_date?: string; // 评估起始日期（含）
+    end_date?: string; // 评估结束日期（含）
+    model_id?: string; // auto/universal/stock/{ts_code}
+  };
+
+  type StockModelEvalItem = {
+    trade_date: string; // T0
+    base_close?: number;
+    t0_high?: number;
+    t0_open?: number;
+    t0_low?: number;
+    t0_close?: number;
+
+    signal?: string; // 买入/观望/卖出
+    confidence?: number; // 0~1
+
+    preds?: Array<{
+      horizon: number; // 1..10
+      trade_date?: string | null; // 若数据库可推导出来则返回
+      pred_high?: number;
+      pred_low?: number;
+      pred_close?: number;
+
+      prev_trade_date?: string | null; // T+N-1 对比日
+      prev_actual_high?: number;
+      prev_actual_low?: number;
+      prev_actual_close?: number;
+
+      diff_high?: number; // 预测 - 实际
+      diff_low?: number; // 预测 - 实际
+      diff_close?: number; // 预测 - 实际
+    }>;
+  };
+
+  type StockModelEvalSummary = {
+    count: number;
+    win_rate?: number; // 0~1
+    total_return?: number; // 0~1
+    annualized_return?: number; // 0~1
+    mdd?: number; // 负数
+    alpha?: number;
+    beta?: number;
+    benchmark?: string;
+  };
+
+  type StockModelEvalResponse = {
+    ts_code: string;
+    days: number;
+    items: StockModelEvalItem[];
+    summary?: StockModelEvalSummary;
+    extra?: Record<string, any>;
+  };
+
   // ============ 交易日历接口数据获取和数据校验 ============
   type CalendarFetchRequest = {
     start_date: string;
@@ -631,6 +705,8 @@ declare namespace ZQuant {
     daily_basic: ColumnInfo[]; // 每日指标列
     daily: ColumnInfo[]; // 日线数据列
     factor?: ColumnInfo[]; // 技术指标列
+    spacex_factor?: ColumnInfo[]; // 自定义量化因子列
+    audit?: ColumnInfo[]; // 策略与审计列
   };
 
   type StockFilterStrategyCreate = {
@@ -1227,6 +1303,87 @@ type TushareTokenTestResponse = {
   type QuantFactorQueryResponse = {
     items: Record<string, any>[];
     total: number;
+  };
+
+  type FactorDetailRequest = {
+    ts_code: string;
+    trade_date: string;
+    detail_type: 'xcross' | 'active' | 'hsl';
+    days?: number;
+  };
+
+  type FactorDetailItem = {
+    trade_date: string;
+    value?: number;
+    details?: Record<string, any>;
+  };
+
+  type FactorDetailResponse = {
+    ts_code: string;
+    detail_type: string;
+    items: FactorDetailItem[];
+    thresholds?: {
+      xcross?: {
+        amplitude: number;
+        pct_chg_abs: number;
+        entity_ratio: number;
+      };
+      active?: {
+        amount_min: number;
+        turnover_rate_min: number;
+        total_mv_min: number;
+        total_mv_max: number;
+        circ_mv_min: number;
+        circ_mv_max: number;
+      };
+    };
+    current_date_data?: {
+      trade_date: string;
+      basic?: Record<string, any>; // 基础信息
+      daily_basic?: Record<string, any>; // 每日指标
+      daily?: Record<string, any>; // 日线数据
+      factor?: Record<string, any>; // 技术指标
+      spacex_factor?: Record<string, any>; // 量化因子
+    };
+  };
+
+  type StrategyEventRequest = {
+    ts_code: string; // TS代码
+    start_date: string; // 开始日期，YYYY-MM-DD
+    end_date: string; // 结束日期，YYYY-MM-DD
+    skip?: number; // 跳过记录数
+    limit?: number; // 每页记录数
+  };
+
+  type StrategyEventItem = {
+    trade_date: string; // 交易日期
+    ts_code: string; // TS代码
+    strategy_id: number; // 策略ID
+    strategy_name: string; // 策略名称
+    strategy_description?: string; // 策略描述
+    details?: Record<string, any>; // 关键详情字段
+  };
+
+  type StrategyEventResponse = {
+    items: StrategyEventItem[];
+    total: number;
+    skip: number;
+    limit: number;
+  };
+
+  type StockFilterRerunRequest = {
+    ts_code: string; // TS代码
+    start_date: string; // 开始日期，YYYY-MM-DD
+    end_date: string; // 结束日期，YYYY-MM-DD
+  };
+
+  type StockFilterRerunResponse = {
+    success: boolean;
+    message: string;
+    total_days: number;
+    total_strategies: number;
+    success_count: number;
+    failed_count: number;
   };
 
   // ============ 因子定义相关 ============

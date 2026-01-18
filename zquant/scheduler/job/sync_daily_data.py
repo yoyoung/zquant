@@ -134,7 +134,14 @@ class SyncDailyDataJob(BaseSyncJob):
                 continue
 
             # 从数据库查询对应的TS代码
-            stock = db.query(Tustock).filter(Tustock.symbol == code).first()
+            from zquant.config import settings
+            query = db.query(Tustock).filter(Tustock.symbol == code)
+            
+            # 全局交易所过滤
+            if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                
+            stock = query.first()
             if stock:
                 ts_codes.append(stock.ts_code)
                 logger.debug(f"代码 {code} 转换为 TS代码: {stock.ts_code}")

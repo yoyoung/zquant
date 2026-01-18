@@ -23,7 +23,8 @@
 import { ProTable } from '@ant-design/pro-components';
 import { Button, Modal, message, Popconfirm, Tag } from 'antd';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { ProForm, ProFormText, ProFormSelect, ProFormTextArea } from '@ant-design/pro-components';
+import { ProForm, ProFormText, ProFormTextArea } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import React, { useRef, useState } from 'react';
 import { getPermissions, createPermission, updatePermission, deletePermission } from '@/services/zquant/permissions';
 import dayjs from 'dayjs';
@@ -271,20 +272,22 @@ const Permissions: React.FC = () => {
               placeholder: '例如: user:create',
             }}
           />
-          <ProFormSelect
+          <ProFormSelectWithAll
             name="resource"
             label="资源类型"
-            rules={[{ required: true, message: '请选择资源类型' }]}
             options={resourceOptions}
+            allValue=""
+            rules={[{ required: true, message: '请选择资源类型' }]}
             fieldProps={{
               placeholder: '请选择资源类型',
             }}
           />
-          <ProFormSelect
+          <ProFormSelectWithAll
             name="action"
             label="操作类型"
-            rules={[{ required: true, message: '请选择操作类型' }]}
             options={actionOptions}
+            allValue=""
+            rules={[{ required: true, message: '请选择操作类型' }]}
             fieldProps={{
               placeholder: '请选择操作类型',
             }}

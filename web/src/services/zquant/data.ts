@@ -346,6 +346,20 @@ export async function statisticsTableData(body?: ZQuant.StatisticsTableDataReque
 }
 
 /**
+ * 获取技术指标数据
+ * POST /api/v1/data/indicators
+ */
+export async function getIndicators(body: ZQuant.StockIndicatorRequest) {
+  return request<ZQuant.StockIndicatorResponse>('/api/v1/data/indicators', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+}
+
+/**
  * 手动触发数据同步（管理员）
  * POST /api/v1/data/sync
  */
@@ -356,6 +370,30 @@ export async function syncData() {
     calendar_count: number;
   }>('/api/v1/data/sync', {
     method: 'POST',
+  });
+}
+
+/**
+ * 获取可用的模型列表
+ * GET /api/v1/ml/models
+ */
+export async function getAvailableModels() {
+  return request<{ models: Array<{ name: string; path: string }> }>('/api/v1/ml/models', {
+    method: 'GET',
+  });
+}
+
+/**
+ * 评估模型最近 N 日预测效果（T+1）
+ * POST /api/v1/ml/stock-predict/evaluate
+ */
+export async function evaluateStockModel(body: ZQuant.StockModelEvalRequest) {
+  return request<ZQuant.StockModelEvalResponse>('/api/v1/ml/stock-predict/evaluate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
   });
 }
 

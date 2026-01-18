@@ -20,7 +20,8 @@
 //     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
 //     - Repository: https://github.com/yoyoung/zquant
 
-import { ProForm, ProFormDatePicker, ProFormSelect, ProTable } from '@ant-design/pro-components';
+import { ProForm, ProFormDatePicker, ProTable } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import type { ProColumns, ProFormInstance } from '@ant-design/pro-components';
 import { Button, Card, message, Tag, Segmented, Calendar as AntCalendar, Popover, Space, Divider, Modal, Table, Typography, Spin, Input } from 'antd';
 import { useLocation } from '@umijs/max';
@@ -682,14 +683,14 @@ const Calendar: React.FC = () => {
               },
             }}
           >
-            <ProFormSelect
+            <ProFormSelectWithAll
               name="exchange"
               label="交易所"
               options={[
-                { label: '所有', value: 'all' },
                 { label: '上交所 (SSE)', value: 'SSE' },
                 { label: '深交所 (SZSE)', value: 'SZSE' },
               ]}
+              allValue="all"
               rules={[{ required: true, message: '请选择交易所' }]}
             />
             <ProFormDatePicker

@@ -24,13 +24,14 @@
 因子计算服务
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from loguru import logger
 from sqlalchemy import Date, DateTime, Float, Integer, String, text, desc, inspect as sql_inspect
 from sqlalchemy.orm import Session
 
+from zquant.config import settings
 from zquant.database import engine
 from zquant.data.processor import DataProcessor
 from zquant.data.storage_base import ensure_table_exists
@@ -40,6 +41,7 @@ from zquant.models.factor import FactorConfig, FactorDefinition, FactorModel
 from zquant.models.scheduler import TaskExecution
 from zquant.scheduler.utils import update_execution_progress
 from zquant.services.dashboard import DashboardService
+from zquant.services.data import DataService
 from zquant.services.factor import FactorService
 
 
@@ -257,8 +259,14 @@ class FactorCalculationService:
         codes = config.get_codes_list()
 
         if not codes:
-            # 如果没有指定代码，返回所有股票代码
-            stocks = db.query(Tustock.ts_code).filter().all()
+            # 如果没有指定代码，返回所有符合交易所配置的股票代码
+            query = db.query(Tustock.ts_code).filter(Tustock.delist_date.is_(None))
+            
+            # 根据配置过滤交易所
+            if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                
+            stocks = query.all()
             return [stock.ts_code for stock in stocks]
 
         return codes
@@ -343,7 +351,7 @@ class FactorCalculationService:
     @staticmethod
     def ensure_factor_tables_for_codes(db: Session, codes: list[str]) -> dict[str, bool]:
         """
-        为指定的股票代码列表初始化因子表（只创建基础结构，不添加因子列）
+        为指定的股票代码列表初始化因子表（包含启用的因子列）
 
         Args:
             db: 数据库会话
@@ -355,6 +363,15 @@ class FactorCalculationService:
         results = {}
         inspector = sql_inspect(engine)
 
+        # 获取所有启用的因子定义列名
+        try:
+            from sqlalchemy import text
+            query = text("SELECT column_name FROM zq_quant_factor_definitions WHERE enabled = 1")
+            result = db.execute(query)
+            spacex_columns = [row[0] for row in result.fetchall() if row[0]]
+        except Exception:
+            spacex_columns = []
+
         for code in codes:
             table_name = get_spacex_factor_table_name(code)
             code_num = code.split(".")[0] if "." in code else code
@@ -365,12 +382,12 @@ class FactorCalculationService:
                 logger.debug(f"因子表已存在: {table_name}")
                 continue
 
-            # 使用 create_spacex_factor_class 创建模型类，然后创建表
+            # 使用 create_spacex_factor_class 创建模型类，包含因子列
             try:
-                SpacexFactor = create_spacex_factor_class(code)
+                SpacexFactor = create_spacex_factor_class(code, extra_columns=spacex_columns)
                 if ensure_table_exists(db, SpacexFactor, table_name):
                     results[code] = True
-                    logger.info(f"成功创建因子结果表（基础结构）: {table_name}")
+                    logger.info(f"成功创建因子结果表: {table_name}")
                 else:
                     results[code] = False
                     logger.error(f"创建因子结果表 {table_name} 失败")
@@ -800,6 +817,9 @@ class FactorCalculationService:
                 "details": [],
             }
         
+        # 确保交易日按时间正序排列（股票优先模式需要）
+        trading_dates.sort()
+        
         # 判断是单日模式还是日期范围模式
         if len(trading_dates) == 1:
             logger.info(f"单日模式：计算日期 {trading_dates[0]}")
@@ -812,29 +832,106 @@ class FactorCalculationService:
         else:
             factor_defs, _ = FactorService.list_factor_definitions(db, enabled=True, limit=1000)
 
+        # 获取股票总数用于进度估算
+        if codes:
+            stocks_count = len(codes)
+        else:
+            query = db.query(Tustock.ts_code).filter(Tustock.delist_date.is_(None))
+            if settings.DEFAULT_EXCHANGES:
+                query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+            stocks_count = query.count()
+            
         # 创建缓存，一次性加载所有因子配置、模型等数据到内存
         cache = FactorCalculationCache(db, factor_defs)
         logger.info(f"已加载缓存: {len(factor_defs)} 个因子, {len(cache.models)} 个模型, {len(cache.configs)} 个配置")
 
+        total_items = len(trading_dates) * len(factor_defs) * stocks_count
+        processed_items = 0
         calculated_count = 0
         failed_count = 0
         invalid_count = 0  # 数据不完整导致返回-1的数量
         details = []
 
-        # 记录开始计算的总体信息
-        logger.info(
-            f"开始因子计算: 交易日数={len(trading_dates)}, 因子数={len(factor_defs)}, "
-            f"日期范围={start_date} 到 {end_date}"
-        )
+        # 断点恢复初始化
+        resume_checkpoint = None
+        if execution:
+            # 关键：先回滚事务，解决 REPEATABLE READ 导致的无法看到外部更新的问题
+            try:
+                db.rollback()
+                # 刷新对象状态
+                db.refresh(execution)
+            except Exception as e:
+                logger.warning(f"刷新执行记录失败: {e}")
 
-        # 估算总处理项数 (交易日 * 因子数 * 股票数)
-        # 这里先获取一次股票总数用于进度估算
-        from zquant.models.data import Tustock
-        stocks_count = len(codes) if codes else db.query(Tustock.ts_code).count()
-        total_items = len(trading_dates) * len(factor_defs) * stocks_count
-        processed_items = 0
-        
-        update_execution_progress(db, execution, total_items=total_items, processed_items=0, message="开始计算因子...")
+            exec_result = execution.get_result()
+            
+            # 优先级 1: 当前记录已有进度 (断点继续场景)
+            if execution.processed_items > 0 and execution.current_item:
+                resume_checkpoint = execution.current_item
+                calculated_count = exec_result.get("calculated_count", 0)
+                failed_count = exec_result.get("failed_count", 0)
+                invalid_count = exec_result.get("invalid_count", 0)
+                processed_items = execution.processed_items
+                logger.info(
+                    f"检测到断点: 标识符={resume_checkpoint}, 已处理项={processed_items}, "
+                    f"成功={calculated_count}, 失败={failed_count}, 数据不完整={invalid_count}"
+                )
+            
+            # 优先级 2: 当前记录无进度，但关联了上一个任务 ID (恢复任务场景)
+            elif exec_result.get("resume_from_execution_id"):
+                prev_id = exec_result.get("resume_from_execution_id")
+                try:
+                    prev_execution = db.query(TaskExecution).filter(TaskExecution.id == prev_id).first()
+                    if prev_execution and prev_execution.processed_items > 0 and prev_execution.current_item:
+                        resume_checkpoint = prev_execution.current_item
+                        prev_result = prev_execution.get_result()
+                        calculated_count = prev_result.get("calculated_count", 0)
+                        failed_count = prev_result.get("failed_count", 0)
+                        invalid_count = prev_result.get("invalid_count", 0)
+                        processed_items = prev_execution.processed_items
+                        
+                        logger.info(
+                            f"从历史任务 {prev_id} 继承断点: 标识符={resume_checkpoint}, "
+                            f"已处理项={processed_items}, 成功={calculated_count}, "
+                            f"失败={failed_count}, 数据不完整={invalid_count}"
+                        )
+                except Exception as e:
+                    logger.warning(f"尝试从历史任务继承进度失败: {e}")
+
+            # 如果存在断点（无论是当前的还是继承的），执行一次同步
+            if resume_checkpoint:
+                update_execution_progress(
+                    db, 
+                    execution, 
+                    processed_items=processed_items,
+                    total_items=total_items,
+                    current_item=resume_checkpoint,
+                    message=f"任务断点恢复中: 从 {resume_checkpoint} 继续...",
+                    extra_result_data={
+                        "calculated_count": calculated_count,
+                        "failed_count": failed_count,
+                        "invalid_count": invalid_count
+                    }
+                )
+            
+        # 判定是否启用股票优先优化逻辑 (针对多日任务)
+        if len(trading_dates) > 1:
+            logger.info("检测到多日任务，启用股票优先优化模式...")
+            return FactorCalculationService._calculate_factor_stock_priority(
+                db, trading_dates, factor_defs, codes, cache, stocks_count, extra_info, execution,
+                # 传入已恢复的统计数据
+                calculated_count=calculated_count,
+                failed_count=failed_count,
+                invalid_count=invalid_count,
+                processed_items=processed_items,
+                resume_checkpoint=resume_checkpoint
+            )
+
+        # 默认模式（单日或非股票优先）的进度初始化
+        if not resume_checkpoint:
+            update_execution_progress(db, execution, total_items=total_items, processed_items=0, message="开始计算因子...")
+            
+        is_skipping = resume_checkpoint is not None
 
         # 对每个交易日循环计算
         for trade_date_idx, current_trade_date in enumerate(trading_dates, 1):
@@ -847,12 +944,24 @@ class FactorCalculationService:
                 
                 # 核心判断：如果配置存在且被禁用，则彻底跳过该因子的计算
                 if config_obj and not config_obj.enabled:
+                    # 如果正在寻找断点，检查当前因子是否就是断点所在的因子
+                    if is_skipping:
+                        # 禁用因子不会出现在 checkpoint 中作为当前项，除非它是作为 "跳过" 的标识
+                        # 但为了安全，我们检查 checkpoint 是否匹配
+                        checkpoint_parts = resume_checkpoint.split("|")
+                        if len(checkpoint_parts) >= 3:
+                            check_date, check_factor_id, _ = checkpoint_parts
+                            if str(current_trade_date) == check_date and str(factor_def.id) == check_factor_id:
+                                # 理论上不应该发生，因为禁用的因子不会被处理
+                                is_skipping = False
+                        
+                        if is_skipping:
+                            logger.debug(f"断点寻找中: 跳过已禁用的因子 {factor_def.factor_name}")
+                            continue
+
                     logger.info(f"因子 {factor_def.factor_name} 的配置已禁用，跳过计算")
                     # 跳过该因子的所有股票项，更新进度条
-                    if codes:
-                        processed_items += len(codes)
-                    else:
-                        processed_items += stocks_count
+                    processed_items += len(codes) if codes else stocks_count
                     
                     update_execution_progress(
                         db, 
@@ -860,45 +969,65 @@ class FactorCalculationService:
                         processed_items=processed_items,
                         total_items=total_items,
                         current_item=f"跳过禁用因子: {factor_def.factor_name}",
-                        message=f"跳过禁用因子: {factor_def.factor_name} - {current_trade_date}"
+                        message=f"跳过禁用因子: {factor_def.factor_name} - {current_trade_date}",
+                        extra_result_data={
+                            "calculated_count": calculated_count,
+                            "failed_count": failed_count,
+                            "invalid_count": invalid_count
+                        }
                     )
                     continue
 
-                configs = [config_obj] if config_obj else []
-
-                # 获取所有股票代码
-                if codes:
-                    codes_to_calc = codes
-                else:
-                    stocks = db.query(Tustock.ts_code).filter().all()
-                    codes_to_calc = [stock.ts_code for stock in stocks]
+                # ... (rest of logic) ...
                 
-                # 如果实际股票数与估算不符，动态调整 total_items (可选，这里先简单累加 processed_items)
+                # 针对每个因子的股票列表
+                # ...
                 
                 # 1. 检查因子是否有默认且启用的模型（必须条件）
                 default_model = cache.get_default_model(factor_def.id)
                 if not default_model:
+                    if is_skipping:
+                        # 同上逻辑
+                        checkpoint_parts = resume_checkpoint.split("|")
+                        if len(checkpoint_parts) >= 3:
+                            check_date, check_factor_id, _ = checkpoint_parts
+                            if str(current_trade_date) == check_date and str(factor_def.id) == check_factor_id:
+                                is_skipping = False
+                        
+                        if is_skipping:
+                            continue
+
                     logger.warning(f"因子 {factor_def.factor_name} 没有默认且启用的模型，跳过")
                     # 跳过该因子的所有股票
-                    processed_items += len(codes_to_calc)
-                    update_execution_progress(
-                        db, 
-                        execution, 
-                        processed_items=processed_items,
-                        total_items=total_items,
-                        current_item=f"跳过因子: {factor_def.factor_name}",
-                        message=f"跳过因子: {factor_def.factor_name} - {current_trade_date} (无默认模型)"
-                    )
+                    # ...
                     continue
 
+                configs = [config_obj] if config_obj else []
+                # 获取所有股票代码
+                if codes:
+                    codes_to_calc = codes
+                else:
+                    query = db.query(Tustock.ts_code).filter(Tustock.delist_date.is_(None))
+                    if settings.DEFAULT_EXCHANGES:
+                        query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    stocks = query.all()
+                    codes_to_calc = [stock.ts_code for stock in stocks]
+
                 if not configs:
+                    # 无特定配置模式
                     logger.info(
                         f"开始计算因子: {factor_def.factor_name} - {current_trade_date} ({trade_date_idx}/{len(trading_dates)}), "
                         f"股票数={len(codes_to_calc)}, model_code={default_model.model_code}"
                     )
 
-                    # 计算因子
                     for code_idx, code in enumerate(codes_to_calc, 1):
+                        checkpoint_id = f"{current_trade_date}|{factor_def.id}|{code}"
+                        if is_skipping:
+                            if resume_checkpoint == checkpoint_id:
+                                is_skipping = False
+                                logger.info(f"已到达断点: {resume_checkpoint}，开始继续计算")
+                            continue
+
                         processed_items += 1
                         try:                            
                             # 每10个股票记录一次详细日志
@@ -909,14 +1038,33 @@ class FactorCalculationService:
                                     execution, 
                                     processed_items=processed_items,
                                     total_items=total_items,
-                                    current_item=f"{code} ({factor_def.cn_name})",
-                                    message=f"正在计算: {factor_def.cn_name} - {current_trade_date} - {code} ({code_idx}/{len(codes_to_calc)})"
+                                    current_item=checkpoint_id,
+                                    message=f"正在计算: {factor_def.cn_name} - {current_trade_date} - {code} ({code_idx}/{len(codes_to_calc)})",
+                                    extra_result_data={
+                                        "calculated_count": calculated_count,
+                                        "failed_count": failed_count,
+                                        "invalid_count": invalid_count
+                                    }
                                 )
 
                                 logger.info(
                                     f"因子计算进度: {factor_def.factor_name} - {current_trade_date} - "
                                     f"已处理 {code_idx}/{len(codes_to_calc)} 个股票 "
                                     f"(总进度: {processed_items}/{total_items}, 成功={calculated_count}, 数据不完整={invalid_count}, 失败={failed_count})"
+                                )
+                            else:
+                                # 即使不记录详细日志，也要更新 current_item 以便断点恢复
+                                update_execution_progress(
+                                    db, 
+                                    execution, 
+                                    processed_items=processed_items,
+                                    total_items=total_items,
+                                    current_item=checkpoint_id,
+                                    extra_result_data={
+                                        "calculated_count": calculated_count,
+                                        "failed_count": failed_count,
+                                        "invalid_count": invalid_count
+                                    }
                                 )
                             
                             result = FactorCalculationService._calculate_single_factor(
@@ -952,26 +1100,14 @@ class FactorCalculationService:
                             )
                 else:
                     # 根据配置计算（支持多映射）
-                    # 配置示例：{"enabled": true, "mappings": [{"model_id": 1, "codes": null}, {"model_id": 2, "codes": ["000001.SZ", "000002.SZ"]}]}
-                    # - codes 为 null 的 mapping 表示默认配置，其他股票使用该 model_id
-                    # - codes 为明确列表的 mapping 表示特定配置，这些 codes 使用对应的 model_id
-                    
-                    # 获取所有股票列表（总是计算所有股票）
-                    if codes:
-                        codes_to_calc = codes
-                    else:
-                        stocks = db.query(Tustock.ts_code).filter().all()
-                        codes_to_calc = [stock.ts_code for stock in stocks]
-
-                    # 收集所有配置中使用的 model_id
+                    # 获取所有配置中使用的 model_id
                     model_ids = set()
-                    for config in configs:
-                        config_dict = config.get_config()
-                        mappings = config_dict.get("mappings", [])
-                        for mapping in mappings:
-                            model_id = mapping.get("model_id")
-                            if model_id:
-                                model_ids.add(model_id)
+                    config_dict = config_obj.get_config()
+                    mappings = config_dict.get("mappings", [])
+                    for mapping in mappings:
+                        model_id = mapping.get("model_id")
+                        if model_id:
+                            model_ids.add(model_id)
 
                     # 收集所有配置中使用的 model_code（用于日志）
                     model_codes = set()
@@ -998,8 +1134,14 @@ class FactorCalculationService:
                         f"股票数={len(codes_to_calc)}, model_code={model_code_str}"
                     )
 
-                    # 对每个代码，查找对应的模型并计算
                     for code_idx, code in enumerate(codes_to_calc, 1):
+                        checkpoint_id = f"{current_trade_date}|{factor_def.id}|{code}"
+                        if is_skipping:
+                            if resume_checkpoint == checkpoint_id:
+                                is_skipping = False
+                                logger.info(f"已到达断点: {resume_checkpoint}，开始继续计算")
+                            continue
+
                         processed_items += 1
                         # 根据代码查找对应的模型（从缓存获取）
                         model = cache.get_model_for_code(factor_def.id, code)
@@ -1017,10 +1159,15 @@ class FactorCalculationService:
                             update_execution_progress(
                                 db, 
                                 execution, 
-                                processed_items=processed_items,
-                                total_items=total_items,
-                                current_item=f"{code} ({factor_def.cn_name})",
-                                message=f"正在计算: {factor_def.cn_name} - {current_trade_date} - {code} ({code_idx}/{len(codes_to_calc)}) - 跳过(无模型)"
+                                processed_items=processed_items, 
+                                total_items=total_items, 
+                                current_item=checkpoint_id,
+                                message=f"正在计算: {factor_def.cn_name} - {current_trade_date} - {code} ({code_idx}/{len(codes_to_calc)}) - 跳过(无模型)",
+                                extra_result_data={
+                                    "calculated_count": calculated_count,
+                                    "failed_count": failed_count,
+                                    "invalid_count": invalid_count
+                                }
                             )
                             continue
 
@@ -1030,10 +1177,15 @@ class FactorCalculationService:
                             update_execution_progress(
                                 db, 
                                 execution, 
-                                processed_items=processed_items,
-                                total_items=total_items,
-                                current_item=f"{code} ({factor_def.cn_name})",
-                                message=f"正在计算: {factor_def.cn_name} - {current_trade_date} - {code} ({code_idx}/{len(codes_to_calc)})"
+                                processed_items=processed_items, 
+                                total_items=total_items, 
+                                current_item=checkpoint_id,
+                                message=f"正在计算: {factor_def.cn_name} - {current_trade_date} - {code} ({code_idx}/{len(codes_to_calc)})",
+                                extra_result_data={
+                                    "calculated_count": calculated_count,
+                                    "failed_count": failed_count,
+                                    "invalid_count": invalid_count
+                                }
                             )
                             
                             # 每10个股票记录一次详细日志
@@ -1075,13 +1227,19 @@ class FactorCalculationService:
                                     "error": str(e),
                                 }
                             )
+
         
         update_execution_progress(
             db, 
             execution, 
             processed_items=processed_items,
             total_items=total_items,
-            message="因子计算完成"
+            message="因子计算完成",
+            extra_result_data={
+                "calculated_count": calculated_count,
+                "failed_count": failed_count,
+                "invalid_count": invalid_count
+            }
         )
 
         # 构建返回消息
@@ -1106,6 +1264,259 @@ class FactorCalculationService:
             "invalid_count": invalid_count,
             "details": details,
         }
+
+    @staticmethod
+    def _calculate_factor_stock_priority(
+        db: Session,
+        trading_dates: list[date],
+        factor_defs: list[FactorDefinition],
+        codes: list[str] | None,
+        cache: FactorCalculationCache,
+        estimated_stocks_count: int,
+        extra_info: dict[str, Any] | None = None,
+        execution: TaskExecution | None = None,
+        calculated_count: int = 0,
+        failed_count: int = 0,
+        invalid_count: int = 0,
+        processed_items: int = 0,
+        resume_checkpoint: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        股票优先模式的因子计算实现
+        
+        Args:
+            db: 数据库会话
+            trading_dates: 排序后的交易日列表
+            factor_defs: 启用的因子定义
+            codes: 指定股票列表
+            cache: 因子配置缓存
+            estimated_stocks_count: 预估股票总数 (用于进度条)
+            extra_info: 额外信息
+            execution: 任务执行记录
+            calculated_count: 恢复的成功数
+            failed_count: 恢复的失败数
+            invalid_count: 恢复的无效数
+            processed_items: 恢复的处理项数
+            resume_checkpoint: 恢复点（股票代码）
+            
+        Returns:
+            计算汇总结果
+        """
+        details = []
+        
+        # 1. 获取参与计算的实际股票列表
+        if codes:
+            codes_to_process = codes
+        else:
+            # 统一获取所有符合交易所配置的股票
+            query = db.query(Tustock.ts_code).filter(Tustock.delist_date.is_(None))
+            if settings.DEFAULT_EXCHANGES:
+                query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+            stocks = query.order_by(Tustock.ts_code).all()
+            codes_to_process = [stock.ts_code for stock in stocks]
+            
+        # 实际总项数
+        total_items = len(codes_to_process) * len(factor_defs) * len(trading_dates)
+        
+        logger.info(f"股票优先模式: 股票数={len(codes_to_process)}, 因子数={len(factor_defs)}, 交易日数={len(trading_dates)}")
+
+        # 2. 确定起始索引
+        start_idx = 0
+        if resume_checkpoint and resume_checkpoint in codes_to_process:
+            start_idx = codes_to_process.index(resume_checkpoint) + 1
+            logger.info(f"股票优先模式断点确认: 股票={resume_checkpoint}, 从索引 {start_idx} 继续执行")
+            
+            # 执行一次进度更新，确传统计数据已同步到数据库
+            update_execution_progress(
+                db, execution, 
+                processed_items=processed_items, 
+                total_items=total_items, 
+                message=f"断点恢复: 从股票 {codes_to_process[start_idx] if start_idx < len(codes_to_process) else 'None'} 继续"
+            )
+        else:
+            # 非恢复模式，初始化进度
+            update_execution_progress(
+                db, execution, 
+                total_items=total_items, 
+                processed_items=0, 
+                message="正在按股票优先模式计算..."
+            )
+
+        # 3. 循环股票进行计算
+        for code_idx, code in enumerate(codes_to_process[start_idx:], start_idx + 1):
+            # 获取该股票在时间段内的所有因子结果
+            # 为了简化逻辑，这里一次性调用 _calculate_stock_period
+            # 内部会自动根据每个因子的定义加载所需数据
+            try:
+                stock_results = FactorCalculationService._calculate_stock_period(
+                    db, code, trading_dates, factor_defs, cache, extra_info
+                )
+                
+                # 累加统计信息
+                for res in stock_results:
+                    if res["success"]:
+                        calculated_count += 1
+                    elif res.get("invalid", False):
+                        invalid_count += 1
+                    else:
+                        failed_count += 1
+                    details.append(res)
+                
+                # 更新处理进度 (按因子 * 日期数量累加)
+                processed_items += len(factor_defs) * len(trading_dates)
+                
+                # 记录日志和进度
+                if code_idx % 10 == 0 or code_idx == len(codes_to_process):
+                    update_execution_progress(
+                        db, 
+                        execution, 
+                        processed_items=processed_items,
+                        total_items=total_items,
+                        current_item=f"{code}",
+                        message=f"已处理股票: {code_idx}/{len(codes_to_process)} ({code})",
+                        extra_result_data={
+                            "calculated_count": calculated_count,
+                            "failed_count": failed_count,
+                            "invalid_count": invalid_count
+                        }
+                    )
+                    logger.info(
+                        f"股票优先进度: {code_idx}/{len(codes_to_process)} - "
+                        f"总进度: {processed_items}/{total_items}, 成功={calculated_count}, 失败={failed_count}"
+                    )
+                else:
+                    # 即使不是每10个，也要更新 current_item 以便断点恢复
+                    update_execution_progress(
+                        db, 
+                        execution, 
+                        processed_items=processed_items,
+                        total_items=total_items,
+                        current_item=f"{code}",
+                        extra_result_data={
+                            "calculated_count": calculated_count,
+                            "failed_count": failed_count,
+                            "invalid_count": invalid_count
+                        }
+                    )
+                    
+            except Exception as e:
+                logger.error(f"处理股票 {code} 失败: {e}")
+                failed_count += len(factor_defs) * len(trading_dates)
+                processed_items += len(factor_defs) * len(trading_dates)
+
+        return {
+            "success": True,
+            "calculated_count": calculated_count,
+            "failed_count": failed_count,
+            "invalid_count": invalid_count,
+            "details": details,
+        }
+
+    @staticmethod
+    def _calculate_stock_period(
+        db: Session,
+        code: str,
+        trading_dates: list[date],
+        factor_defs: list[FactorDefinition],
+        cache: FactorCalculationCache,
+        extra_info: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        股票优先模式：计算单个股票在整个时间段内的所有因子结果
+        
+        Args:
+            db: 数据库会话
+            code: 股票代码
+            trading_dates: 交易日期列表（按时间顺序排序）
+            factor_defs: 待计算的因子定义列表
+            cache: 因子计算缓存
+            extra_info: 额外信息
+            
+        Returns:
+            计算结果统计
+        """
+        all_results = []
+        
+        # 1. 准备所有因子计算器及其所需的表名
+        calculators = []
+        required_tables = set()
+        for factor_def in factor_defs:
+            default_model = cache.get_default_model(factor_def.id)
+            if not default_model:
+                continue
+            
+            # 创建计算器实例
+            calc = create_calculator(default_model.model_code, default_model.get_config())
+            calculators.append((factor_def, default_model, calc))
+            required_tables.update(calc.get_required_data_tables())
+            
+        if not calculators:
+            return []
+
+        # 2. 一次性加载该股票的所有必要原始数据（包括追溯期）
+        # 默认预留 180 天追溯期，确保各种均线、历史统计逻辑有足够数据
+        lead_in_days = 180
+        start_fetch_date = trading_dates[0] - timedelta(days=lead_in_days)
+        end_fetch_date = trading_dates[-1]
+        
+        data_cache = {}
+        for table_pattern in required_tables:
+            if "daily_basic" in table_pattern:
+                data_cache["daily_basic"] = DataService.get_daily_basic_data(
+                    db, ts_code=code, start_date=start_fetch_date, end_date=end_fetch_date
+                )
+            elif "daily" in table_pattern:
+                data_cache["daily"] = DataService.get_daily_data(
+                    db, ts_code=code, start_date=start_fetch_date, end_date=end_fetch_date
+                )
+            elif "hsl_choice" in table_pattern:
+                # 批量获取精选数据
+                sql = text("SELECT trade_date FROM `zq_data_hsl_choice` WHERE ts_code = :code AND trade_date >= :start AND trade_date <= :end")
+                res = db.execute(sql, {"code": code, "start": start_fetch_date, "end": end_fetch_date})
+                data_cache["hsl_choice"] = [{"trade_date": row[0]} for row in res.fetchall()]
+            # 这里可以根据需要添加更多数据表类型的支持
+            
+        # 3. 为所有计算器注入预加载数据
+        for _, _, calc in calculators:
+            calc.set_data_cache(data_cache)
+            
+        # 4. 循环日期进行计算
+        for trade_date in trading_dates:
+            for factor_def, model, calc in calculators:
+                # 针对股票优先模式，我们复用 _calculate_single_factor 的部分逻辑，
+                # 但直接传入已创建好的计算器实例（如果后续需要深度重构，可以再拆分）
+                try:
+                    # 调用计算器的核心计算方法
+                    factor_result = calc.calculate(db, code, trade_date)
+                    
+                    # 检查是否为组合因子
+                    is_combined_factor = isinstance(factor_result, dict)
+                    
+                    # 处理无效或空结果
+                    if not is_combined_factor and factor_result == -1:
+                        table_name = FactorCalculationService.ensure_factor_result_table(db, code, factor_def.factor_name)
+                        success = FactorCalculationService.save_factor_result(db, table_name, trade_date, -1.0, factor_def.column_name, code, extra_info)
+                        all_results.append({"success": True, "invalid": True, "code": code, "trade_date": trade_date})
+                        continue
+                        
+                    if factor_result is None:
+                        all_results.append({"success": False, "code": code, "trade_date": trade_date, "error": "计算返回None"})
+                        continue
+                        
+                    # 保存结果
+                    table_name = FactorCalculationService.ensure_factor_result_table(db, code, factor_def.factor_name)
+                    if is_combined_factor:
+                        success = FactorCalculationService.save_combined_factor_result(db, table_name, trade_date, factor_result, code, extra_info)
+                    else:
+                        success = FactorCalculationService.save_factor_result(db, table_name, trade_date, factor_result, factor_def.column_name, code, extra_info)
+                        
+                    all_results.append({"success": success, "invalid": False, "code": code, "trade_date": trade_date})
+                    
+                except Exception as e:
+                    logger.error(f"股票优先模式计算失败: code={code}, date={trade_date}, factor={factor_def.factor_name}, error={e}")
+                    all_results.append({"success": False, "code": code, "trade_date": trade_date, "error": str(e)})
+                    
+        return all_results
 
     @staticmethod
     def _calculate_single_factor(

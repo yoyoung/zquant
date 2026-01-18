@@ -28,6 +28,7 @@ from datetime import date, datetime
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import inspect
 from sqlalchemy import asc, desc, func, text
 from sqlalchemy.orm import Session
 
@@ -792,6 +793,81 @@ class FactorService:
         return True
 
     # ==================== 量化因子结果查询 ====================
+
+    @staticmethod
+    def get_spacex_factors(
+        db: Session,
+        ts_code: str,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        获取 SpaceX 因子数据（用于指标/图表叠加）。
+
+        说明：
+        - SpaceX 因子存储在按股票分表的物理表：zq_quant_factor_spacex_{symbol}
+        - 返回按 trade_date 升序的记录列表
+        """
+        if not ts_code:
+            return []
+
+        symbol = ts_code.split(".")[0] if "." in ts_code else ts_code
+        target_table = f"zq_quant_factor_spacex_{symbol}"
+
+        # 表不存在则直接返回空（避免报错刷屏）
+        try:
+            insp = inspect(db.get_bind())
+            if target_table not in insp.get_table_names():
+                return []
+        except Exception:
+            # inspect 失败时继续尝试查询（让 SQL 报错走到 except）
+            pass
+
+        where_parts = ["ts_code = :ts_code"]
+        params: dict[str, Any] = {"ts_code": ts_code}
+        if start_date:
+            where_parts.append("trade_date >= :start_date")
+            params["start_date"] = start_date
+        if end_date:
+            where_parts.append("trade_date <= :end_date")
+            params["end_date"] = end_date
+        where_clause = " AND ".join(where_parts)
+
+        sql = f"""
+        SELECT *
+        FROM `{target_table}`
+        WHERE {where_clause}
+        ORDER BY trade_date ASC
+        """
+
+        try:
+            result = db.execute(text(sql), params)
+            rows = result.fetchall()
+            columns = list(result.keys())
+        except Exception as e:
+            logger.warning(f"查询 SpaceX 因子失败: {ts_code}, err={e}")
+            return []
+
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            d: dict[str, Any] = dict(zip(columns, row, strict=False))
+
+            # 规范化日期字段
+            td = d.get("trade_date")
+            if td and hasattr(td, "isoformat"):
+                d["trade_date"] = td.isoformat()
+            elif td is not None:
+                d["trade_date"] = str(td)
+
+            # 仅保留图表/指标可能关心的字段；去掉噪声字段
+            d.pop("created_time", None)
+            d.pop("updated_time", None)
+            d.pop("created_by", None)
+            d.pop("updated_by", None)
+
+            items.append(d)
+
+        return items
 
     @staticmethod
     def get_quant_factor_results(

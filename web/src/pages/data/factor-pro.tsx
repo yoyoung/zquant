@@ -20,7 +20,8 @@
 //     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
 //     - Repository: https://github.com/yoyoung/zquant
 
-import { ProForm, ProFormDatePicker, ProFormText, ProFormSelect } from '@ant-design/pro-components';
+import { ProForm, ProFormDatePicker, ProFormText } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import type { ProColumns, ProFormInstance } from '@ant-design/pro-components';
 import { Button, Card, Modal, Table, Tag, Typography, Space, message, Spin, Input } from 'antd';
 import { useLocation } from '@umijs/max';
@@ -681,7 +682,7 @@ const FactorPro: React.FC = () => {
         onFinish={handleQueryWithCache}
         onValuesChange={handleFormValuesChange}
         initialValues={{
-          ts_code: '000001.SZ,000002.SZ',
+          ts_code: '000001.SZ,600004.SH',
           start_date: dayjs().subtract(1, 'month'),
           end_date: dayjs(),
           trading_day_filter: 'all',
@@ -738,15 +739,14 @@ const FactorPro: React.FC = () => {
           label="结束日期"
           rules={[{ required: true, message: '请选择结束日期' }]}
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="trading_day_filter"
           label="匹配交易日"
-          initialValue="all"
           options={[
-            { label: '全交易日', value: 'all' },
             { label: '有交易日', value: 'has_data' },
             { label: '无交易日', value: 'no_data' },
           ]}
+          allValue="all"
           width="xs"
         />
       </ProForm>

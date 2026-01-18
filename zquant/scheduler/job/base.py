@@ -82,6 +82,7 @@ class BaseSyncJob:
 
         Returns:
             最近的交易日期，如果未找到则返回今天
+            如果当日是交易日，且时间是下午6点之前，则返回上一个交易日；如果是下午6点之后，则返回当天
 
         Raises:
             ValueError: 如果 self.db 未设置
@@ -90,17 +91,45 @@ class BaseSyncJob:
             raise ValueError("数据库会话未设置，请确保在 db_session 上下文管理器内调用")
 
         try:
-            latest = (
-                self.db.query(TustockTradecal.cal_date)
-                .filter(TustockTradecal.is_open == 1, TustockTradecal.cal_date <= date.today())
-                .order_by(desc(TustockTradecal.cal_date))
-                .first()
-            )
+            today = date.today()
+            current_time = datetime.now()
+            cutoff_hour = 18  # 下午6点（18:00）
 
-            if latest and latest[0]:
-                return latest[0]
-            # 如果未找到交易日，返回今天
-            return date.today()
+            # 判断今天是否为交易日
+            is_today_trading_day = DateHelper.is_trading_day(self.db, today)
+
+            if is_today_trading_day:
+                # 如果今天是交易日
+                if current_time.hour < cutoff_hour:
+                    # 下午6点之前，返回上一个交易日
+                    previous = (
+                        self.db.query(TustockTradecal.cal_date)
+                        .filter(
+                            TustockTradecal.is_open == 1,
+                            TustockTradecal.cal_date < today,
+                        )
+                        .order_by(desc(TustockTradecal.cal_date))
+                        .first()
+                    )
+                    if previous and previous[0]:
+                        return previous[0]
+                    # 如果找不到上一个交易日，返回今天
+                    return today
+                else:
+                    # 下午6点之后，返回当天
+                    return today
+            else:
+                # 如果今天不是交易日，返回最近的交易日
+                latest = (
+                    self.db.query(TustockTradecal.cal_date)
+                    .filter(TustockTradecal.is_open == 1, TustockTradecal.cal_date <= today)
+                    .order_by(desc(TustockTradecal.cal_date))
+                    .first()
+                )
+                if latest and latest[0]:
+                    return latest[0]
+                # 如果未找到交易日，返回今天
+                return today
         except Exception as e:
             logger.warning(f"获取最近交易日失败: {e}，使用今天日期")
             return date.today()
@@ -132,20 +161,20 @@ class BaseSyncJob:
             
         日期默认值规则：
             - 规则一（所有参数均未传入，use_latest_trading_date_when_all_empty=True）：
-              start_date 和 end_date 都默认为最后一个交易日
+              start_date 和 end_date 如果当日是交易日，且时间是下午6点之前，都默认返回上一个交易日；如果是下午6点之后，都默认返回最后一个交易日
             - 规则二（至少有一个参数传入）：
               start_date 默认为 "20250101"，end_date 默认为最后一个交易日
         """
         today = date.today()
 
-        latest_trading_date = today
         # 获取最近交易日（如果 self.db 可用）
-        # latest_trading_date = None
+        latest_trading_date = None
         # if self.db:
         #     try:
         #         latest_trading_date = self.get_latest_trading_date()
         #     except Exception as e:
         #         logger.debug(f"无法获取最近交易日: {e}，将使用默认逻辑")
+        #         latest_trading_date = today
 
         # 判断是否所有日期参数都为空
         all_empty = not start_date and not end_date
@@ -157,23 +186,20 @@ class BaseSyncJob:
             except ValueError:
                 raise ValueError(f"开始日期格式错误: {start_date}，应为YYYYMMDD格式")
         else:
-            if use_latest_trading_date_when_all_empty and all_empty and latest_trading_date:
-                # 规则一：所有参数均无传入时，使用最后一个交易日
-                start_date_obj = latest_trading_date
-            elif not use_latest_trading_date_when_all_empty or not all_empty:
+            if use_latest_trading_date_when_all_empty and all_empty:
+                # 规则一：所有参数均未传入时
+                if latest_trading_date:
+                    # 使用最后一个交易日（已根据时间判断逻辑处理）
+                    start_date_obj = latest_trading_date
+                else:
+                    start_date_obj = today
+            else:
                 # 规则二：至少有一个参数传入时，start-date默认使用20250101
                 try:
                     start_date_obj = datetime.strptime("20250101", "%Y%m%d").date()
                 except ValueError:
-                    # 如果20250101格式错误（不应该发生），使用最近交易日
+                    # 如果20250101格式错误（不应该发生），使用最近交易日或今天
                     start_date_obj = latest_trading_date if latest_trading_date else today
-            elif latest_trading_date:
-                # 使用最近交易日
-                start_date_obj = latest_trading_date
-            elif default_start_days > 0:
-                start_date_obj = today - timedelta(days=default_start_days)
-            else:
-                start_date_obj = today
             start_date = start_date_obj.strftime("%Y%m%d")
 
         # 处理结束日期
@@ -183,15 +209,19 @@ class BaseSyncJob:
             except ValueError:
                 raise ValueError(f"结束日期格式错误: {end_date}，应为YYYYMMDD格式")
         else:
-            if use_latest_trading_date_when_all_empty and all_empty and latest_trading_date:
-                # 规则一：所有参数均无传入时，使用最后一个交易日
-                end_date_obj = latest_trading_date
-            elif latest_trading_date:
-                # 规则二：至少有一个参数传入时，end-date默认使用最后一个交易日
-                end_date_obj = latest_trading_date
+            if use_latest_trading_date_when_all_empty and all_empty:
+                # 规则一：所有参数均未传入时
+                if latest_trading_date:
+                    # 使用最后一个交易日（已根据时间判断逻辑处理）
+                    end_date_obj = latest_trading_date
+                else:
+                    end_date_obj = today
             else:
-                # 如果无法获取最近交易日，使用今天
-                end_date_obj = today
+                # 规则二：至少有一个参数传入时，end-date默认使用最后一个交易日
+                if latest_trading_date:
+                    end_date_obj = latest_trading_date
+                else:
+                    end_date_obj = today
             end_date = end_date_obj.strftime("%Y%m%d")
 
         # 验证日期逻辑

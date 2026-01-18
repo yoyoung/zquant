@@ -29,7 +29,7 @@ import json
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, Float
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 
 from zquant.database import AuditMixin, Base
@@ -130,6 +130,13 @@ class TaskExecution(Base, AuditMixin):
     task = relationship(
         "ScheduledTask", back_populates="executions", primaryjoin="foreign(TaskExecution.task_id) == ScheduledTask.id"
     )
+
+    @validates("error_message")
+    def validate_error_message(self, key, value):
+        """自动截断过长的错误信息，防止数据库写入失败"""
+        if value and len(value) > 60000:
+            return value[:60000] + "\n... (内容由于过长已被自动截断) ..."
+        return value
 
     def get_result(self) -> dict:
         """获取执行结果字典"""

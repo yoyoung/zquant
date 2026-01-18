@@ -23,11 +23,11 @@
 import {
   ProFormDateTimePicker,
   ProFormRadio,
-  ProFormSelect,
   ProFormText,
   ProFormTextArea,
   StepsForm,
 } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import { FormattedMessage, useIntl, useRequest } from '@umijs/max';
 import { Modal, message } from 'antd';
 import React, { cloneElement, useCallback, useState } from 'react';
@@ -177,7 +177,7 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
             defaultMessage: '配置规则属性',
           })}
         >
-          <ProFormSelect
+          <ProFormSelectWithAll
             name="target"
             width="md"
             label={intl.formatMessage({
@@ -188,8 +188,9 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
               0: '表一',
               1: '表二',
             }}
+            allValue=""
           />
-          <ProFormSelect
+          <ProFormSelectWithAll
             name="template"
             width="md"
             label={intl.formatMessage({
@@ -200,6 +201,7 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
               0: '规则模板一',
               1: '规则模板二',
             }}
+            allValue=""
           />
           <ProFormRadio.Group
             name="type"
@@ -248,7 +250,7 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
               },
             ]}
           />
-          <ProFormSelect
+          <ProFormSelectWithAll
             name="frequency"
             label={intl.formatMessage({
               id: 'pages.searchTable.updateForm.object',
@@ -259,6 +261,7 @@ const UpdateForm: React.FC<UpdateFormProps> = (props) => {
               month: '月',
               week: '周',
             }}
+            allValue=""
           />
         </StepsForm.StepForm>
       </StepsForm>

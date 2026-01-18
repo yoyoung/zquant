@@ -25,6 +25,7 @@
 """
 
 from functools import lru_cache
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -42,7 +43,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.dialects.mysql import DOUBLE as Double
 from sqlalchemy.sql import func
 
@@ -211,52 +212,44 @@ def create_tustock_daily_class(ts_code: str):
         code_part = ts_code
     table_suffix = code_part.replace("-", "_").lower()
 
+    # 类名必须唯一，避免 SQLAlchemy 警告
+    class_name = f"TustockDaily_{table_suffix}"
+
     # 在类定义外部定义约束和索引名称，确保可以在类内部访问
     constraint_name = f"uq_tustock_daily_{table_suffix}_ts_code_date"
     index_name = f"idx_tustock_daily_{table_suffix}_ts_code_date"
 
-    class TustockDaily(Base, AuditMixin):
-        """股票日线数据表（按 ts_code 分表，对应 TABLE_ZQ_DATA_TUSTOCK_DAILY_TEMPLATE）"""
-
-        __database__ = "zquant"  # 数据库名称
-        __tablename__ = table_name  # 数据表名称（动态）
-        __cnname__ = "股票日线数据"  # 数据表中文名称
-        __datasource__ = "tushare"  # 数据源
-        __api__ = "daily"  # 数据源接口
-        __docs__ = "https://tushare.pro/document/2?doc_id=27"  # 数据源文档
-        __columns__ = {
-            "ts_code": {
-                "type": String(10),  # 类型
-                "index": True,  # 索引
-            },
-            "trade_date": {
-                "type": Date,  # 类型
-                "index": True,  # 索引
-            },
-        }
-
-        id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-        ts_code = Column(
-            String(10), nullable=False, index=True, info={"name": "TS代码"}, comment="TS代码，如：000001.SZ"
-        )
-        trade_date = Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期")
-        open = Column(Double, nullable=False, info={"name": "开盘价"}, comment="开盘价")
-        high = Column(Double, nullable=False, info={"name": "最高价"}, comment="最高价")
-        low = Column(Double, nullable=False, info={"name": "最低价"}, comment="最低价")
-        close = Column(Double, nullable=False, info={"name": "收盘价"}, comment="收盘价")
-        pre_close = Column(Double, nullable=True, info={"name": "昨收价"}, comment="昨收价")
-        change = Column(Double, nullable=True, info={"name": "涨跌额"}, comment="涨跌额")
-        pct_chg = Column(Double, nullable=True, info={"name": "涨跌幅"}, comment="涨跌幅")
-        vol = Column(Double, nullable=False, default=0, info={"name": "成交量（手）"}, comment="成交量（手）")
-        amount = Column(Double, nullable=False, default=0, info={"name": "成交额（千元）"}, comment="成交额（千元）")
-
-        # 唯一约束：同一股票同一日期只能有一条记录
-        __table_args__ = (
+    # 使用 type 动态创建类，确保类名唯一
+    attrs = {
+        "__database__": "zquant",
+        "__tablename__": table_name,
+        "__cnname__": "股票日线数据",
+        "__datasource__": "tushare",
+        "__api__": "daily",
+        "__docs__": "https://tushare.pro/document/2?doc_id=27",
+        "__columns__": {
+            "ts_code": {"type": String(10), "index": True},
+            "trade_date": {"type": Date, "index": True},
+        },
+        "id": Column(Integer, primary_key=True, index=True, autoincrement=True),
+        "ts_code": Column(String(10), nullable=False, index=True, info={"name": "TS代码"}, comment="TS代码，如：000001.SZ"),
+        "trade_date": Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期"),
+        "open": Column(Double, nullable=False, info={"name": "开盘价"}, comment="开盘价"),
+        "high": Column(Double, nullable=False, info={"name": "最高价"}, comment="最高价"),
+        "low": Column(Double, nullable=False, info={"name": "最低价"}, comment="最低价"),
+        "close": Column(Double, nullable=False, info={"name": "收盘价"}, comment="收盘价"),
+        "pre_close": Column(Double, nullable=True, info={"name": "昨收价"}, comment="昨收价"),
+        "change": Column(Double, nullable=True, info={"name": "涨跌额"}, comment="涨跌额"),
+        "pct_chg": Column(Double, nullable=True, info={"name": "涨跌幅"}, comment="涨跌幅"),
+        "vol": Column(Double, nullable=False, default=0, info={"name": "成交量（手）"}, comment="成交量（手）"),
+        "amount": Column(Double, nullable=False, default=0, info={"name": "成交额（千元）"}, comment="成交额（千元）"),
+        "__table_args__": (
             UniqueConstraint("ts_code", "trade_date", name=constraint_name),
             Index(index_name, "ts_code", "trade_date"),
-        )
+        ),
+    }
 
-    return TustockDaily
+    return type(class_name, (Base, AuditMixin), attrs)
 
 
 # 视图表名称
@@ -327,61 +320,51 @@ def create_tustock_daily_basic_class(ts_code: str):
         code_part = ts_code
     table_suffix = code_part.replace("-", "_").lower()
 
+    # 类名必须唯一，避免 SQLAlchemy 警告
+    class_name = f"TustockDailyBasic_{table_suffix}"
+
     # 在类定义外部定义约束和索引名称，确保可以在类内部访问
     constraint_name = f"uq_tustock_daily_basic_{table_suffix}_ts_code_date"
     index_name = f"idx_tustock_daily_basic_{table_suffix}_ts_code_date"
 
-    class TustockDailyBasic(Base, AuditMixin):
-        """股票每日指标表（按 ts_code 分表，对应 TABLE_CN_TUSTOCK_DAILY_BASIC_TEMPLATE）"""
-
-        __database__ = "zquant"  # 数据库名称
-        __tablename__ = table_name  # 数据表名称（动态）
-        __cnname__ = "股票每日指标"  # 数据表中文名称
-        __datasource__ = "tushare"  # 数据源
-        __api__ = "daily_basic"  # 数据源接口
-        __docs__ = "https://tushare.pro/document/2?doc_id=32"  # 数据源文档
-        __columns__ = {
-            "ts_code": {
-                "type": String(10),  # 类型
-                "index": True,  # 索引
-            },
-            "trade_date": {
-                "type": Date,  # 类型
-                "index": True,  # 索引
-            },
-        }
-
-        id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-        ts_code = Column(
-            String(10), nullable=False, index=True, info={"name": "TS代码"}, comment="TS代码，如：000001.SZ"
-        )
-        trade_date = Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期")
-        close = Column(Double, nullable=False, info={"name": "收盘价"}, comment="收盘价")
-        turnover_rate = Column(Double, nullable=True, info={"name": "换手率"}, comment="换手率")
-        turnover_rate_f = Column(
-            Double, nullable=True, info={"name": "换手率（自由流通股）"}, comment="换手率（自由流通股）"
-        )
-        volume_ratio = Column(Double, nullable=True, info={"name": "量比"}, comment="量比")
-        pe = Column(Double, nullable=True, info={"name": "市盈率(总市值/净利润)"}, comment="市盈率(总市值/净利润)")
-        pe_ttm = Column(Double, nullable=True, info={"name": "市盈率TTM"}, comment="市盈率TTM")
-        pb = Column(Double, nullable=True, info={"name": "市净率(总市值/净资产)"}, comment="市净率(总市值/净资产)")
-        ps = Column(Double, nullable=True, info={"name": "市销率"}, comment="市销率")
-        ps_ttm = Column(Double, nullable=True, info={"name": "市销率TTM"}, comment="市销率TTM")
-        dv_ratio = Column(Double, nullable=True, info={"name": "股息率"}, comment="股息率")
-        dv_ttm = Column(Double, nullable=True, info={"name": "股息率TTM"}, comment="股息率TTM")
-        total_share = Column(Double, nullable=True, info={"name": "总股本（万股）"}, comment="总股本（万股）")
-        float_share = Column(Double, nullable=True, info={"name": "流通股本（万股）"}, comment="流通股本（万股）")
-        free_share = Column(Double, nullable=True, info={"name": "自由流通股本（万）"}, comment="自由流通股本（万）")
-        total_mv = Column(Double, nullable=True, info={"name": "总市值（万元）"}, comment="总市值（万元）")
-        circ_mv = Column(Double, nullable=True, info={"name": "流通市值（万元）"}, comment="流通市值（万元）")
-
-        # 唯一约束：同一股票同一日期只能有一条记录
-        __table_args__ = (
+    # 使用 type 动态创建类，确保类名唯一
+    attrs = {
+        "__database__": "zquant",
+        "__tablename__": table_name,
+        "__cnname__": "股票每日指标",
+        "__datasource__": "tushare",
+        "__api__": "daily_basic",
+        "__docs__": "https://tushare.pro/document/2?doc_id=32",
+        "__columns__": {
+            "ts_code": {"type": String(10), "index": True},
+            "trade_date": {"type": Date, "index": True},
+        },
+        "id": Column(Integer, primary_key=True, index=True, autoincrement=True),
+        "ts_code": Column(String(10), nullable=False, index=True, info={"name": "TS代码"}, comment="TS代码，如：000001.SZ"),
+        "trade_date": Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期"),
+        "close": Column(Double, nullable=False, info={"name": "收盘价"}, comment="收盘价"),
+        "turnover_rate": Column(Double, nullable=True, info={"name": "换手率"}, comment="换手率"),
+        "turnover_rate_f": Column(Double, nullable=True, info={"name": "换手率（自由流通股）"}, comment="换手率（自由流通股）"),
+        "volume_ratio": Column(Double, nullable=True, info={"name": "量比"}, comment="量比"),
+        "pe": Column(Double, nullable=True, info={"name": "市盈率(总市值/净利润)"}, comment="市盈率(总市值/净利润)"),
+        "pe_ttm": Column(Double, nullable=True, info={"name": "市盈率TTM"}, comment="市盈率TTM"),
+        "pb": Column(Double, nullable=True, info={"name": "市净率(总市值/净资产)"}, comment="市净率(总市值/净资产)"),
+        "ps": Column(Double, nullable=True, info={"name": "市销率"}, comment="市销率"),
+        "ps_ttm": Column(Double, nullable=True, info={"name": "市销率TTM"}, comment="市销率TTM"),
+        "dv_ratio": Column(Double, nullable=True, info={"name": "股息率"}, comment="股息率"),
+        "dv_ttm": Column(Double, nullable=True, info={"name": "股息率TTM"}, comment="股息率TTM"),
+        "total_share": Column(Double, nullable=True, info={"name": "总股本（万股）"}, comment="总股本（万股）"),
+        "float_share": Column(Double, nullable=True, info={"name": "流通股本（万股）"}, comment="流通股本（万股）"),
+        "free_share": Column(Double, nullable=True, info={"name": "自由流通股本（万）"}, comment="自由流通股本（万）"),
+        "total_mv": Column(Double, nullable=True, info={"name": "总市值（万元）"}, comment="总市值（万元）"),
+        "circ_mv": Column(Double, nullable=True, info={"name": "流通市值（万元）"}, comment="流通市值（万元）"),
+        "__table_args__": (
             UniqueConstraint("ts_code", "trade_date", name=constraint_name),
             Index(index_name, "ts_code", "trade_date"),
-        )
+        ),
+    }
 
-    return TustockDailyBasic
+    return type(class_name, (Base, AuditMixin), attrs)
 
 
 # 每日指标视图表名称
@@ -439,76 +422,68 @@ def create_tustock_factor_class(ts_code: str):
         code_part = ts_code
     table_suffix = code_part.replace("-", "_").lower()
 
+    # 类名必须唯一，避免 SQLAlchemy 警告
+    class_name = f"TustockFactor_{table_suffix}"
+
     # 在类定义外部定义约束和索引名称，确保可以在类内部访问
     constraint_name = f"uq_tustock_factor_{table_suffix}_ts_code_date"
     index_name = f"idx_tustock_factor_{table_suffix}_ts_code_date"
 
-    class TustockFactor(Base, AuditMixin):
-        """股票技术因子表（按 ts_code 分表，对应 TABLE_CN_TUSTOCK_FACTOR_TEMPLATE）"""
-
-        __database__ = "zquant"  # 数据库名称
-        __tablename__ = table_name  # 数据表名称（动态）
-        __cnname__ = "股票技术因子"  # 数据表中文名称
-        __datasource__ = "tushare"  # 数据源
-        __api__ = "stk_factor"  # 数据源接口
-        __docs__ = "https://tushare.pro/document/2?doc_id=296"  # 数据源文档
-        __columns__ = {
-            "ts_code": {
-                "type": String(10),  # 类型
-                "index": True,  # 索引
-            },
-            "trade_date": {
-                "type": Date,  # 类型
-                "index": True,  # 索引
-            },
-        }
-
-        id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-        ts_code = Column(
-            String(10), nullable=False, index=True, info={"name": "TS代码"}, comment="TS代码，如：000001.SZ"
-        )
-        trade_date = Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期")
-        close = Column(Double, nullable=True, info={"name": "收盘价"}, comment="收盘价")
-        open = Column(Double, nullable=True, info={"name": "开盘价"}, comment="开盘价")
-        high = Column(Double, nullable=True, info={"name": "最高价"}, comment="最高价")
-        low = Column(Double, nullable=True, info={"name": "最低价"}, comment="最低价")
-        pre_close = Column(Double, nullable=True, info={"name": "昨收价"}, comment="昨收价")
-        change = Column(Double, nullable=True, info={"name": "涨跌额"}, comment="涨跌额")
-        pct_change = Column(Double, nullable=True, info={"name": "涨跌幅"}, comment="涨跌幅")
-        vol = Column(Double, nullable=True, info={"name": "成交量（手）"}, comment="成交量（手）")
-        amount = Column(Double, nullable=True, info={"name": "成交额（千元）"}, comment="成交额（千元）")
-        adj_factor = Column(Double, nullable=True, info={"name": "复权因子"}, comment="复权因子")
-        open_hfq = Column(Double, nullable=True, info={"name": "开盘价后复权"}, comment="开盘价后复权")
-        open_qfq = Column(Double, nullable=True, info={"name": "开盘价前复权"}, comment="开盘价前复权")
-        close_hfq = Column(Double, nullable=True, info={"name": "收盘价后复权"}, comment="收盘价后复权")
-        close_qfq = Column(Double, nullable=True, info={"name": "收盘价前复权"}, comment="收盘价前复权")
-        high_hfq = Column(Double, nullable=True, info={"name": "最高价后复权"}, comment="最高价后复权")
-        high_qfq = Column(Double, nullable=True, info={"name": "最高价前复权"}, comment="最高价前复权")
-        low_hfq = Column(Double, nullable=True, info={"name": "最低价后复权"}, comment="最低价后复权")
-        low_qfq = Column(Double, nullable=True, info={"name": "最低价前复权"}, comment="最低价前复权")
-        pre_close_hfq = Column(Double, nullable=True, info={"name": "昨收价后复权"}, comment="昨收价后复权")
-        pre_close_qfq = Column(Double, nullable=True, info={"name": "昨收价前复权"}, comment="昨收价前复权")
-        macd_dif = Column(Double, nullable=True, info={"name": "MACD_DIF"}, comment="MACD_DIF")
-        macd_dea = Column(Double, nullable=True, info={"name": "MACD_DEA"}, comment="MACD_DEA")
-        macd = Column(Double, nullable=True, info={"name": "MACD"}, comment="MACD")
-        kdj_k = Column(Double, nullable=True, info={"name": "KDJ_K"}, comment="KDJ_K")
-        kdj_d = Column(Double, nullable=True, info={"name": "KDJ_D"}, comment="KDJ_D")
-        kdj_j = Column(Double, nullable=True, info={"name": "KDJ_J"}, comment="KDJ_J")
-        rsi_6 = Column(Double, nullable=True, info={"name": "RSI_6"}, comment="RSI_6")
-        rsi_12 = Column(Double, nullable=True, info={"name": "RSI_12"}, comment="RSI_12")
-        rsi_24 = Column(Double, nullable=True, info={"name": "RSI_24"}, comment="RSI_24")
-        boll_upper = Column(Double, nullable=True, info={"name": "BOLL_UPPER"}, comment="BOLL_UPPER")
-        boll_mid = Column(Double, nullable=True, info={"name": "BOLL_MID"}, comment="BOLL_MID")
-        boll_lower = Column(Double, nullable=True, info={"name": "BOLL_LOWER"}, comment="BOLL_LOWER")
-        cci = Column(Double, nullable=True, info={"name": "CCI"}, comment="CCI")
-
-        # 唯一约束：同一股票同一日期只能有一条记录
-        __table_args__ = (
+    # 使用 type 动态创建类，确保类名唯一
+    attrs = {
+        "__database__": "zquant",
+        "__tablename__": table_name,
+        "__cnname__": "股票技术因子",
+        "__datasource__": "tushare",
+        "__api__": "stk_factor",
+        "__docs__": "https://tushare.pro/document/2?doc_id=296",
+        "__columns__": {
+            "ts_code": {"type": String(10), "index": True},
+            "trade_date": {"type": Date, "index": True},
+        },
+        "id": Column(Integer, primary_key=True, index=True, autoincrement=True),
+        "ts_code": Column(String(10), nullable=False, index=True, info={"name": "TS代码"}, comment="TS代码，如：000001.SZ"),
+        "trade_date": Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期"),
+        "close": Column(Double, nullable=True, info={"name": "收盘价"}, comment="收盘价"),
+        "open": Column(Double, nullable=True, info={"name": "开盘价"}, comment="开盘价"),
+        "high": Column(Double, nullable=True, info={"name": "最高价"}, comment="最高价"),
+        "low": Column(Double, nullable=True, info={"name": "最低价"}, comment="最低价"),
+        "pre_close": Column(Double, nullable=True, info={"name": "昨收价"}, comment="昨收价"),
+        "change": Column(Double, nullable=True, info={"name": "涨跌额"}, comment="涨跌额"),
+        "pct_change": Column(Double, nullable=True, info={"name": "涨跌幅"}, comment="涨跌幅"),
+        "vol": Column(Double, nullable=True, info={"name": "成交量（手）"}, comment="成交量（手）"),
+        "amount": Column(Double, nullable=True, info={"name": "成交额（千元）"}, comment="成交额（千元）"),
+        "adj_factor": Column(Double, nullable=True, info={"name": "复权因子"}, comment="复权因子"),
+        "open_hfq": Column(Double, nullable=True, info={"name": "开盘价后复权"}, comment="开盘价后复权"),
+        "open_qfq": Column(Double, nullable=True, info={"name": "开盘价前复权"}, comment="开盘价前复权"),
+        "close_hfq": Column(Double, nullable=True, info={"name": "收盘价后复权"}, comment="收盘价后复权"),
+        "close_qfq": Column(Double, nullable=True, info={"name": "收盘价前复权"}, comment="收盘价前复权"),
+        "high_hfq": Column(Double, nullable=True, info={"name": "最高价后复权"}, comment="最高价后复权"),
+        "high_qfq": Column(Double, nullable=True, info={"name": "最高价前复权"}, comment="最高价前复权"),
+        "low_hfq": Column(Double, nullable=True, info={"name": "最低价后复权"}, comment="最低价后复权"),
+        "low_qfq": Column(Double, nullable=True, info={"name": "最低价前复权"}, comment="最低价前复权"),
+        "pre_close_hfq": Column(Double, nullable=True, info={"name": "昨收价后复权"}, comment="昨收价后复权"),
+        "pre_close_qfq": Column(Double, nullable=True, info={"name": "昨收价前复权"}, comment="昨收价前复权"),
+        "macd_dif": Column(Double, nullable=True, info={"name": "MACD_DIF"}, comment="MACD_DIF"),
+        "macd_dea": Column(Double, nullable=True, info={"name": "MACD_DEA"}, comment="MACD_DEA"),
+        "macd": Column(Double, nullable=True, info={"name": "MACD"}, comment="MACD"),
+        "kdj_k": Column(Double, nullable=True, info={"name": "KDJ_K"}, comment="KDJ_K"),
+        "kdj_d": Column(Double, nullable=True, info={"name": "KDJ_D"}, comment="KDJ_D"),
+        "kdj_j": Column(Double, nullable=True, info={"name": "KDJ_J"}, comment="KDJ_J"),
+        "rsi_6": Column(Double, nullable=True, info={"name": "RSI_6"}, comment="RSI_6"),
+        "rsi_12": Column(Double, nullable=True, info={"name": "RSI_12"}, comment="RSI_12"),
+        "rsi_24": Column(Double, nullable=True, info={"name": "RSI_24"}, comment="RSI_24"),
+        "boll_upper": Column(Double, nullable=True, info={"name": "BOLL_UPPER"}, comment="BOLL_UPPER"),
+        "boll_mid": Column(Double, nullable=True, info={"name": "BOLL_MID"}, comment="BOLL_MID"),
+        "boll_lower": Column(Double, nullable=True, info={"name": "BOLL_LOWER"}, comment="BOLL_LOWER"),
+        "cci": Column(Double, nullable=True, info={"name": "CCI"}, comment="CCI"),
+        "__table_args__": (
             UniqueConstraint("ts_code", "trade_date", name=constraint_name),
             Index(index_name, "ts_code", "trade_date"),
-        )
+        ),
+    }
 
-    return TustockFactor
+    return type(class_name, (Base, AuditMixin), attrs)
 
 
 # 因子视图表名称
@@ -566,369 +541,294 @@ def create_tustock_stkfactorpro_class(ts_code: str):
         code_part = ts_code
     table_suffix = code_part.replace("-", "_").lower()
 
+    # 类名必须唯一，避免 SQLAlchemy 警告
+    class_name = f"TustockStkFactorPro_{table_suffix}"
+
     # 在类定义外部定义约束和索引名称，确保可以在类内部访问
     constraint_name = f"uq_tustock_stkfactorpro_{table_suffix}_ts_code_date"
     index_name = f"idx_tustock_stkfactorpro_{table_suffix}_ts_code_date"
 
-    class TustockStkFactorPro(Base, AuditMixin):
-        """股票技术因子（专业版）表（按 ts_code 分表，对应 TABLE_CN_TUSTOCK_STKFACTORPRO_TEMPLATE）"""
-
-        __database__ = "zquant"  # 数据库名称
-        __tablename__ = table_name  # 数据表名称（动态）
-        __cnname__ = "股票技术因子（量化因子）"  # 数据表中文名称
-        __datasource__ = "tushare"  # 数据源
-        __api__ = "stk_factor_pro"  # 数据源接口
-        __docs__ = "https://tushare.pro/document/2?doc_id=328"  # 数据源文档
-        __columns__ = {
-            "ts_code": {
-                "type": String(10),  # 类型
-                "index": True,  # 索引
-            },
-            "trade_date": {
-                "type": Date,  # 类型
-                "index": True,  # 索引
-            },
-        }
-
-        id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-        ts_code = Column(String(10), nullable=False, index=True, info={"name": "股票代码"}, comment="股票代码")
-        trade_date = Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期")
-        open = Column(Double, nullable=True, info={"name": "开盘价"}, comment="开盘价")
-        open_hfq = Column(Double, nullable=True, info={"name": "开盘价（后复权）"}, comment="开盘价（后复权）")
-        open_qfq = Column(Double, nullable=True, info={"name": "开盘价（前复权）"}, comment="开盘价（前复权）")
-        high = Column(Double, nullable=True, info={"name": "最高价"}, comment="最高价")
-        high_hfq = Column(Double, nullable=True, info={"name": "最高价（后复权）"}, comment="最高价（后复权）")
-        high_qfq = Column(Double, nullable=True, info={"name": "最高价（前复权）"}, comment="最高价（前复权）")
-        low = Column(Double, nullable=True, info={"name": "最低价"}, comment="最低价")
-        low_hfq = Column(Double, nullable=True, info={"name": "最低价（后复权）"}, comment="最低价（后复权）")
-        low_qfq = Column(Double, nullable=True, info={"name": "最低价（前复权）"}, comment="最低价（前复权）")
-        close = Column(Double, nullable=True, info={"name": "收盘价"}, comment="收盘价")
-        close_hfq = Column(Double, nullable=True, info={"name": "收盘价（后复权）"}, comment="收盘价（后复权）")
-        close_qfq = Column(Double, nullable=True, info={"name": "收盘价（前复权）"}, comment="收盘价（前复权）")
-        pre_close = Column(Double, nullable=True, info={"name": "昨收价(前复权)"}, comment="昨收价(前复权)")
-        change = Column(Double, nullable=True, info={"name": "涨跌额"}, comment="涨跌额")
-        pct_chg = Column(Double, nullable=True, info={"name": "涨跌幅"}, comment="涨跌幅")
-        vol = Column(Double, nullable=True, info={"name": "成交量（手）"}, comment="成交量（手）")
-        amount = Column(Double, nullable=True, info={"name": "成交额（千元）"}, comment="成交额（千元）")
-        turnover_rate = Column(Double, nullable=True, info={"name": "换手率（%）"}, comment="换手率（%）")
-        turnover_rate_f = Column(
-            Double, nullable=True, info={"name": "换手率（自由流通股）"}, comment="换手率（自由流通股）"
-        )
-        volume_ratio = Column(Double, nullable=True, info={"name": "量比"}, comment="量比")
-        pe = Column(Double, nullable=True, info={"name": "市盈率"}, comment="市盈率")
-        pe_ttm = Column(Double, nullable=True, info={"name": "市盈率（TTM）"}, comment="市盈率（TTM）")
-        pb = Column(Double, nullable=True, info={"name": "市净率"}, comment="市净率")
-        ps = Column(Double, nullable=True, info={"name": "市销率"}, comment="市销率")
-        ps_ttm = Column(Double, nullable=True, info={"name": "市销率（TTM）"}, comment="市销率（TTM）")
-        dv_ratio = Column(Double, nullable=True, info={"name": "股息率（%）"}, comment="股息率（%）")
-        dv_ttm = Column(Double, nullable=True, info={"name": "股息率（TTM）（%）"}, comment="股息率（TTM）（%）")
-        total_share = Column(Double, nullable=True, info={"name": "总股本（万股）"}, comment="总股本（万股）")
-        float_share = Column(Double, nullable=True, info={"name": "流通股本（万股）"}, comment="流通股本（万股）")
-        free_share = Column(Double, nullable=True, info={"name": "自由流通股本（万）"}, comment="自由流通股本（万）")
-        total_mv = Column(Double, nullable=True, info={"name": "总市值（万元）"}, comment="总市值（万元）")
-        circ_mv = Column(Double, nullable=True, info={"name": "流通市值（万元）"}, comment="流通市值（万元）")
-        adj_factor = Column(Double, nullable=True, info={"name": "复权因子"}, comment="复权因子")
-        # 技术指标字段（不复权、后复权、前复权）
-        asi_bfq = Column(Double, nullable=True, info={"name": "振动升降指标(不复权)"}, comment="振动升降指标(不复权)")
-        asi_hfq = Column(Double, nullable=True, info={"name": "振动升降指标(后复权)"}, comment="振动升降指标(后复权)")
-        asi_qfq = Column(Double, nullable=True, info={"name": "振动升降指标(前复权)"}, comment="振动升降指标(前复权)")
-        asit_bfq = Column(Double, nullable=True, info={"name": "振动升降指标T(不复权)"}, comment="振动升降指标T(不复权)")
-        asit_hfq = Column(Double, nullable=True, info={"name": "振动升降指标T(后复权)"}, comment="振动升降指标T(后复权)")
-        asit_qfq = Column(Double, nullable=True, info={"name": "振动升降指标T(前复权)"}, comment="振动升降指标T(前复权)")
-        atr_bfq = Column(
-            Double, nullable=True, info={"name": "ATR真实波动均值(不复权)"}, comment="ATR真实波动均值(不复权)"
-        )
-        atr_hfq = Column(
-            Double, nullable=True, info={"name": "ATR真实波动均值(后复权)"}, comment="ATR真实波动均值(后复权)"
-        )
-        atr_qfq = Column(
-            Double, nullable=True, info={"name": "ATR真实波动均值(前复权)"}, comment="ATR真实波动均值(前复权)"
-        )
-        bbi_bfq = Column(Double, nullable=True, info={"name": "BBI多空指标(不复权)"}, comment="BBI多空指标(不复权)")
-        bbi_hfq = Column(Double, nullable=True, info={"name": "BBI多空指标(后复权)"}, comment="BBI多空指标(后复权)")
-        bbi_qfq = Column(Double, nullable=True, info={"name": "BBI多空指标(前复权)"}, comment="BBI多空指标(前复权)")
-        bias1_bfq = Column(Double, nullable=True, info={"name": "BIAS乖离率1(不复权)"}, comment="BIAS乖离率1(不复权)")
-        bias1_hfq = Column(Double, nullable=True, info={"name": "BIAS乖离率1(后复权)"}, comment="BIAS乖离率1(后复权)")
-        bias1_qfq = Column(Double, nullable=True, info={"name": "BIAS乖离率1(前复权)"}, comment="BIAS乖离率1(前复权)")
-        bias2_bfq = Column(Double, nullable=True, info={"name": "BIAS乖离率2(不复权)"}, comment="BIAS乖离率2(不复权)")
-        bias2_hfq = Column(Double, nullable=True, info={"name": "BIAS乖离率2(后复权)"}, comment="BIAS乖离率2(后复权)")
-        bias2_qfq = Column(Double, nullable=True, info={"name": "BIAS乖离率2(前复权)"}, comment="BIAS乖离率2(前复权)")
-        bias3_bfq = Column(Double, nullable=True, info={"name": "BIAS乖离率3(不复权)"}, comment="BIAS乖离率3(不复权)")
-        bias3_hfq = Column(Double, nullable=True, info={"name": "BIAS乖离率3(后复权)"}, comment="BIAS乖离率3(后复权)")
-        bias3_qfq = Column(Double, nullable=True, info={"name": "BIAS乖离率3(前复权)"}, comment="BIAS乖离率3(前复权)")
-        boll_lower_bfq = Column(Double, nullable=True, info={"name": "BOLL下轨(不复权)"}, comment="BOLL下轨(不复权)")
-        boll_lower_hfq = Column(Double, nullable=True, info={"name": "BOLL下轨(后复权)"}, comment="BOLL下轨(后复权)")
-        boll_lower_qfq = Column(Double, nullable=True, info={"name": "BOLL下轨(前复权)"}, comment="BOLL下轨(前复权)")
-        boll_mid_bfq = Column(Double, nullable=True, info={"name": "BOLL中轨(不复权)"}, comment="BOLL中轨(不复权)")
-        boll_mid_hfq = Column(Double, nullable=True, info={"name": "BOLL中轨(后复权)"}, comment="BOLL中轨(后复权)")
-        boll_mid_qfq = Column(Double, nullable=True, info={"name": "BOLL中轨(前复权)"}, comment="BOLL中轨(前复权)")
-        boll_upper_bfq = Column(Double, nullable=True, info={"name": "BOLL上轨(不复权)"}, comment="BOLL上轨(不复权)")
-        boll_upper_hfq = Column(Double, nullable=True, info={"name": "BOLL上轨(后复权)"}, comment="BOLL上轨(后复权)")
-        boll_upper_qfq = Column(Double, nullable=True, info={"name": "BOLL上轨(前复权)"}, comment="BOLL上轨(前复权)")
-        brar_ar_bfq = Column(Double, nullable=True, info={"name": "BRAR情绪-AR(不复权)"}, comment="BRAR情绪-AR(不复权)")
-        brar_ar_hfq = Column(Double, nullable=True, info={"name": "BRAR情绪-AR(后复权)"}, comment="BRAR情绪-AR(后复权)")
-        brar_ar_qfq = Column(Double, nullable=True, info={"name": "BRAR情绪-AR(前复权)"}, comment="BRAR情绪-AR(前复权)")
-        brar_br_bfq = Column(Double, nullable=True, info={"name": "BRAR情绪-BR(不复权)"}, comment="BRAR情绪-BR(不复权)")
-        brar_br_hfq = Column(Double, nullable=True, info={"name": "BRAR情绪-BR(后复权)"}, comment="BRAR情绪-BR(后复权)")
-        brar_br_qfq = Column(Double, nullable=True, info={"name": "BRAR情绪-BR(前复权)"}, comment="BRAR情绪-BR(前复权)")
-        cci_bfq = Column(Double, nullable=True, info={"name": "CCI(不复权)"}, comment="CCI(不复权)")
-        cci_hfq = Column(Double, nullable=True, info={"name": "CCI(后复权)"}, comment="CCI(后复权)")
-        cci_qfq = Column(Double, nullable=True, info={"name": "CCI(前复权)"}, comment="CCI(前复权)")
-        cr_bfq = Column(Double, nullable=True, info={"name": "CR(不复权)"}, comment="CR(不复权)")
-        cr_hfq = Column(Double, nullable=True, info={"name": "CR(后复权)"}, comment="CR(后复权)")
-        cr_qfq = Column(Double, nullable=True, info={"name": "CR(前复权)"}, comment="CR(前复权)")
-        dfma_dif_bfq = Column(Double, nullable=True, info={"name": "DFMA_DIF(不复权)"}, comment="DFMA_DIF(不复权)")
-        dfma_dif_hfq = Column(Double, nullable=True, info={"name": "DFMA_DIF(后复权)"}, comment="DFMA_DIF(后复权)")
-        dfma_dif_qfq = Column(Double, nullable=True, info={"name": "DFMA_DIF(前复权)"}, comment="DFMA_DIF(前复权)")
-        dfma_difma_bfq = Column(Double, nullable=True, info={"name": "DFMA_DIFMA(不复权)"}, comment="DFMA_DIFMA(不复权)")
-        dfma_difma_hfq = Column(Double, nullable=True, info={"name": "DFMA_DIFMA(后复权)"}, comment="DFMA_DIFMA(后复权)")
-        dfma_difma_qfq = Column(Double, nullable=True, info={"name": "DFMA_DIFMA(前复权)"}, comment="DFMA_DIFMA(前复权)")
-        dmi_adx_bfq = Column(Double, nullable=True, info={"name": "DMI_ADX(不复权)"}, comment="DMI_ADX(不复权)")
-        dmi_adx_hfq = Column(Double, nullable=True, info={"name": "DMI_ADX(后复权)"}, comment="DMI_ADX(后复权)")
-        dmi_adx_qfq = Column(Double, nullable=True, info={"name": "DMI_ADX(前复权)"}, comment="DMI_ADX(前复权)")
-        dmi_adxr_bfq = Column(Double, nullable=True, info={"name": "DMI_ADXR(不复权)"}, comment="DMI_ADXR(不复权)")
-        dmi_adxr_hfq = Column(Double, nullable=True, info={"name": "DMI_ADXR(后复权)"}, comment="DMI_ADXR(后复权)")
-        dmi_adxr_qfq = Column(Double, nullable=True, info={"name": "DMI_ADXR(前复权)"}, comment="DMI_ADXR(前复权)")
-        dmi_mdi_bfq = Column(Double, nullable=True, info={"name": "DMI_MDI(不复权)"}, comment="DMI_MDI(不复权)")
-        dmi_mdi_hfq = Column(Double, nullable=True, info={"name": "DMI_MDI(后复权)"}, comment="DMI_MDI(后复权)")
-        dmi_mdi_qfq = Column(Double, nullable=True, info={"name": "DMI_MDI(前复权)"}, comment="DMI_MDI(前复权)")
-        dmi_pdi_bfq = Column(Double, nullable=True, info={"name": "DMI_PDI(不复权)"}, comment="DMI_PDI(不复权)")
-        dmi_pdi_hfq = Column(Double, nullable=True, info={"name": "DMI_PDI(后复权)"}, comment="DMI_PDI(后复权)")
-        dmi_pdi_qfq = Column(Double, nullable=True, info={"name": "DMI_PDI(前复权)"}, comment="DMI_PDI(前复权)")
-        downdays = Column(Double, nullable=True, info={"name": "连跌天数"}, comment="连跌天数")
-        updays = Column(Double, nullable=True, info={"name": "连涨天数"}, comment="连涨天数")
-        dpo_bfq = Column(Double, nullable=True, info={"name": "DPO(不复权)"}, comment="DPO(不复权)")
-        dpo_hfq = Column(Double, nullable=True, info={"name": "DPO(后复权)"}, comment="DPO(后复权)")
-        dpo_qfq = Column(Double, nullable=True, info={"name": "DPO(前复权)"}, comment="DPO(前复权)")
-        madpo_bfq = Column(Double, nullable=True, info={"name": "MADPO(不复权)"}, comment="MADPO(不复权)")
-        madpo_hfq = Column(Double, nullable=True, info={"name": "MADPO(后复权)"}, comment="MADPO(后复权)")
-        madpo_qfq = Column(Double, nullable=True, info={"name": "MADPO(前复权)"}, comment="MADPO(前复权)")
-        ema_bfq_10 = Column(Double, nullable=True, info={"name": "EMA_10(不复权)"}, comment="EMA_10(不复权)")
-        ema_bfq_20 = Column(Double, nullable=True, info={"name": "EMA_20(不复权)"}, comment="EMA_20(不复权)")
-        ema_bfq_250 = Column(Double, nullable=True, info={"name": "EMA_250(不复权)"}, comment="EMA_250(不复权)")
-        ema_bfq_30 = Column(Double, nullable=True, info={"name": "EMA_30(不复权)"}, comment="EMA_30(不复权)")
-        ema_bfq_5 = Column(Double, nullable=True, info={"name": "EMA_5(不复权)"}, comment="EMA_5(不复权)")
-        ema_bfq_60 = Column(Double, nullable=True, info={"name": "EMA_60(不复权)"}, comment="EMA_60(不复权)")
-        ema_bfq_90 = Column(Double, nullable=True, info={"name": "EMA_90(不复权)"}, comment="EMA_90(不复权)")
-        ema_hfq_10 = Column(Double, nullable=True, info={"name": "EMA_10(后复权)"}, comment="EMA_10(后复权)")
-        ema_hfq_20 = Column(Double, nullable=True, info={"name": "EMA_20(后复权)"}, comment="EMA_20(后复权)")
-        ema_hfq_250 = Column(Double, nullable=True, info={"name": "EMA_250(后复权)"}, comment="EMA_250(后复权)")
-        ema_hfq_30 = Column(Double, nullable=True, info={"name": "EMA_30(后复权)"}, comment="EMA_30(后复权)")
-        ema_hfq_5 = Column(Double, nullable=True, info={"name": "EMA_5(后复权)"}, comment="EMA_5(后复权)")
-        ema_hfq_60 = Column(Double, nullable=True, info={"name": "EMA_60(后复权)"}, comment="EMA_60(后复权)")
-        ema_hfq_90 = Column(Double, nullable=True, info={"name": "EMA_90(后复权)"}, comment="EMA_90(后复权)")
-        ema_qfq_10 = Column(Double, nullable=True, info={"name": "EMA_10(前复权)"}, comment="EMA_10(前复权)")
-        ema_qfq_20 = Column(Double, nullable=True, info={"name": "EMA_20(前复权)"}, comment="EMA_20(前复权)")
-        ema_qfq_250 = Column(Double, nullable=True, info={"name": "EMA_250(前复权)"}, comment="EMA_250(前复权)")
-        ema_qfq_30 = Column(Double, nullable=True, info={"name": "EMA_30(前复权)"}, comment="EMA_30(前复权)")
-        ema_qfq_5 = Column(Double, nullable=True, info={"name": "EMA_5(前复权)"}, comment="EMA_5(前复权)")
-        ema_qfq_60 = Column(Double, nullable=True, info={"name": "EMA_60(前复权)"}, comment="EMA_60(前复权)")
-        ema_qfq_90 = Column(Double, nullable=True, info={"name": "EMA_90(前复权)"}, comment="EMA_90(前复权)")
-        emv_bfq = Column(Double, nullable=True, info={"name": "EMV(不复权)"}, comment="EMV(不复权)")
-        emv_hfq = Column(Double, nullable=True, info={"name": "EMV(后复权)"}, comment="EMV(后复权)")
-        emv_qfq = Column(Double, nullable=True, info={"name": "EMV(前复权)"}, comment="EMV(前复权)")
-        maemv_bfq = Column(Double, nullable=True, info={"name": "MAEMV(不复权)"}, comment="MAEMV(不复权)")
-        maemv_hfq = Column(Double, nullable=True, info={"name": "MAEMV(后复权)"}, comment="MAEMV(后复权)")
-        maemv_qfq = Column(Double, nullable=True, info={"name": "MAEMV(前复权)"}, comment="MAEMV(前复权)")
-        expma_12_bfq = Column(Double, nullable=True, info={"name": "EXPMA_12(不复权)"}, comment="EXPMA_12(不复权)")
-        expma_12_hfq = Column(Double, nullable=True, info={"name": "EXPMA_12(后复权)"}, comment="EXPMA_12(后复权)")
-        expma_12_qfq = Column(Double, nullable=True, info={"name": "EXPMA_12(前复权)"}, comment="EXPMA_12(前复权)")
-        expma_50_bfq = Column(Double, nullable=True, info={"name": "EXPMA_50(不复权)"}, comment="EXPMA_50(不复权)")
-        expma_50_hfq = Column(Double, nullable=True, info={"name": "EXPMA_50(后复权)"}, comment="EXPMA_50(后复权)")
-        expma_50_qfq = Column(Double, nullable=True, info={"name": "EXPMA_50(前复权)"}, comment="EXPMA_50(前复权)")
-        kdj_bfq = Column(Double, nullable=True, info={"name": "KDJ(不复权)"}, comment="KDJ(不复权)")
-        kdj_hfq = Column(Double, nullable=True, info={"name": "KDJ(后复权)"}, comment="KDJ(后复权)")
-        kdj_qfq = Column(Double, nullable=True, info={"name": "KDJ(前复权)"}, comment="KDJ(前复权)")
-        kdj_d_bfq = Column(Double, nullable=True, info={"name": "KDJ_D(不复权)"}, comment="KDJ_D(不复权)")
-        kdj_d_hfq = Column(Double, nullable=True, info={"name": "KDJ_D(后复权)"}, comment="KDJ_D(后复权)")
-        kdj_d_qfq = Column(Double, nullable=True, info={"name": "KDJ_D(前复权)"}, comment="KDJ_D(前复权)")
-        kdj_k_bfq = Column(Double, nullable=True, info={"name": "KDJ_K(不复权)"}, comment="KDJ_K(不复权)")
-        kdj_k_hfq = Column(Double, nullable=True, info={"name": "KDJ_K(后复权)"}, comment="KDJ_K(后复权)")
-        kdj_k_qfq = Column(Double, nullable=True, info={"name": "KDJ_K(前复权)"}, comment="KDJ_K(前复权)")
-        ktn_down_bfq = Column(
-            Double, nullable=True, info={"name": "肯特纳通道下轨(不复权)"}, comment="肯特纳通道下轨(不复权)"
-        )
-        ktn_down_hfq = Column(
-            Double, nullable=True, info={"name": "肯特纳通道下轨(后复权)"}, comment="肯特纳通道下轨(后复权)"
-        )
-        ktn_down_qfq = Column(
-            Double, nullable=True, info={"name": "肯特纳通道下轨(前复权)"}, comment="肯特纳通道下轨(前复权)"
-        )
-        ktn_mid_bfq = Column(
-            Double, nullable=True, info={"name": "肯特纳通道中轨(不复权)"}, comment="肯特纳通道中轨(不复权)"
-        )
-        ktn_mid_hfq = Column(
-            Double, nullable=True, info={"name": "肯特纳通道中轨(后复权)"}, comment="肯特纳通道中轨(后复权)"
-        )
-        ktn_mid_qfq = Column(
-            Double, nullable=True, info={"name": "肯特纳通道中轨(前复权)"}, comment="肯特纳通道中轨(前复权)"
-        )
-        ktn_upper_bfq = Column(
-            Double, nullable=True, info={"name": "肯特纳通道上轨(不复权)"}, comment="肯特纳通道上轨(不复权)"
-        )
-        ktn_upper_hfq = Column(
-            Double, nullable=True, info={"name": "肯特纳通道上轨(后复权)"}, comment="肯特纳通道上轨(后复权)"
-        )
-        ktn_upper_qfq = Column(
-            Double, nullable=True, info={"name": "肯特纳通道上轨(前复权)"}, comment="肯特纳通道上轨(前复权)"
-        )
-        lowdays = Column(Double, nullable=True, info={"name": "近低价周期"}, comment="近低价周期")
-        topdays = Column(Double, nullable=True, info={"name": "近高价周期"}, comment="近高价周期")
-        ma_bfq_10 = Column(Double, nullable=True, info={"name": "MA_10(不复权)"}, comment="MA_10(不复权)")
-        ma_bfq_20 = Column(Double, nullable=True, info={"name": "MA_20(不复权)"}, comment="MA_20(不复权)")
-        ma_bfq_250 = Column(Double, nullable=True, info={"name": "MA_250(不复权)"}, comment="MA_250(不复权)")
-        ma_bfq_30 = Column(Double, nullable=True, info={"name": "MA_30(不复权)"}, comment="MA_30(不复权)")
-        ma_bfq_5 = Column(Double, nullable=True, info={"name": "MA_5(不复权)"}, comment="MA_5(不复权)")
-        ma_bfq_60 = Column(Double, nullable=True, info={"name": "MA_60(不复权)"}, comment="MA_60(不复权)")
-        ma_bfq_90 = Column(Double, nullable=True, info={"name": "MA_90(不复权)"}, comment="MA_90(不复权)")
-        ma_hfq_10 = Column(Double, nullable=True, info={"name": "MA_10(后复权)"}, comment="MA_10(后复权)")
-        ma_hfq_20 = Column(Double, nullable=True, info={"name": "MA_20(后复权)"}, comment="MA_20(后复权)")
-        ma_hfq_250 = Column(Double, nullable=True, info={"name": "MA_250(后复权)"}, comment="MA_250(后复权)")
-        ma_hfq_30 = Column(Double, nullable=True, info={"name": "MA_30(后复权)"}, comment="MA_30(后复权)")
-        ma_hfq_5 = Column(Double, nullable=True, info={"name": "MA_5(后复权)"}, comment="MA_5(后复权)")
-        ma_hfq_60 = Column(Double, nullable=True, info={"name": "MA_60(后复权)"}, comment="MA_60(后复权)")
-        ma_hfq_90 = Column(Double, nullable=True, info={"name": "MA_90(后复权)"}, comment="MA_90(后复权)")
-        ma_qfq_10 = Column(Double, nullable=True, info={"name": "MA_10(前复权)"}, comment="MA_10(前复权)")
-        ma_qfq_20 = Column(Double, nullable=True, info={"name": "MA_20(前复权)"}, comment="MA_20(前复权)")
-        ma_qfq_250 = Column(Double, nullable=True, info={"name": "MA_250(前复权)"}, comment="MA_250(前复权)")
-        ma_qfq_30 = Column(Double, nullable=True, info={"name": "MA_30(前复权)"}, comment="MA_30(前复权)")
-        ma_qfq_5 = Column(Double, nullable=True, info={"name": "MA_5(前复权)"}, comment="MA_5(前复权)")
-        ma_qfq_60 = Column(Double, nullable=True, info={"name": "MA_60(前复权)"}, comment="MA_60(前复权)")
-        ma_qfq_90 = Column(Double, nullable=True, info={"name": "MA_90(前复权)"}, comment="MA_90(前复权)")
-        macd_bfq = Column(Double, nullable=True, info={"name": "MACD(不复权)"}, comment="MACD(不复权)")
-        macd_hfq = Column(Double, nullable=True, info={"name": "MACD(后复权)"}, comment="MACD(后复权)")
-        macd_qfq = Column(Double, nullable=True, info={"name": "MACD(前复权)"}, comment="MACD(前复权)")
-        macd_dea_bfq = Column(Double, nullable=True, info={"name": "MACD_DEA(不复权)"}, comment="MACD_DEA(不复权)")
-        macd_dea_hfq = Column(Double, nullable=True, info={"name": "MACD_DEA(后复权)"}, comment="MACD_DEA(后复权)")
-        macd_dea_qfq = Column(Double, nullable=True, info={"name": "MACD_DEA(前复权)"}, comment="MACD_DEA(前复权)")
-        macd_dif_bfq = Column(Double, nullable=True, info={"name": "MACD_DIF(不复权)"}, comment="MACD_DIF(不复权)")
-        macd_dif_hfq = Column(Double, nullable=True, info={"name": "MACD_DIF(后复权)"}, comment="MACD_DIF(后复权)")
-        macd_dif_qfq = Column(Double, nullable=True, info={"name": "MACD_DIF(前复权)"}, comment="MACD_DIF(前复权)")
-        mass_bfq = Column(Double, nullable=True, info={"name": "梅斯线(不复权)"}, comment="梅斯线(不复权)")
-        mass_hfq = Column(Double, nullable=True, info={"name": "梅斯线(后复权)"}, comment="梅斯线(后复权)")
-        mass_qfq = Column(Double, nullable=True, info={"name": "梅斯线(前复权)"}, comment="梅斯线(前复权)")
-        ma_mass_bfq = Column(Double, nullable=True, info={"name": "梅斯线MA(不复权)"}, comment="梅斯线MA(不复权)")
-        ma_mass_hfq = Column(Double, nullable=True, info={"name": "梅斯线MA(后复权)"}, comment="梅斯线MA(后复权)")
-        ma_mass_qfq = Column(Double, nullable=True, info={"name": "梅斯线MA(前复权)"}, comment="梅斯线MA(前复权)")
-        mfi_bfq = Column(Double, nullable=True, info={"name": "MFI(不复权)"}, comment="MFI(不复权)")
-        mfi_hfq = Column(Double, nullable=True, info={"name": "MFI(后复权)"}, comment="MFI(后复权)")
-        mfi_qfq = Column(Double, nullable=True, info={"name": "MFI(前复权)"}, comment="MFI(前复权)")
-        mtm_bfq = Column(Double, nullable=True, info={"name": "MTM(不复权)"}, comment="MTM(不复权)")
-        mtm_hfq = Column(Double, nullable=True, info={"name": "MTM(后复权)"}, comment="MTM(后复权)")
-        mtm_qfq = Column(Double, nullable=True, info={"name": "MTM(前复权)"}, comment="MTM(前复权)")
-        mtmma_bfq = Column(Double, nullable=True, info={"name": "MTMMA(不复权)"}, comment="MTMMA(不复权)")
-        mtmma_hfq = Column(Double, nullable=True, info={"name": "MTMMA(后复权)"}, comment="MTMMA(后复权)")
-        mtmma_qfq = Column(Double, nullable=True, info={"name": "MTMMA(前复权)"}, comment="MTMMA(前复权)")
-        obv_bfq = Column(Double, nullable=True, info={"name": "OBV(不复权)"}, comment="OBV(不复权)")
-        obv_hfq = Column(Double, nullable=True, info={"name": "OBV(后复权)"}, comment="OBV(后复权)")
-        obv_qfq = Column(Double, nullable=True, info={"name": "OBV(前复权)"}, comment="OBV(前复权)")
-        psy_bfq = Column(Double, nullable=True, info={"name": "PSY(不复权)"}, comment="PSY(不复权)")
-        psy_hfq = Column(Double, nullable=True, info={"name": "PSY(后复权)"}, comment="PSY(后复权)")
-        psy_qfq = Column(Double, nullable=True, info={"name": "PSY(前复权)"}, comment="PSY(前复权)")
-        psyma_bfq = Column(Double, nullable=True, info={"name": "PSYMA(不复权)"}, comment="PSYMA(不复权)")
-        psyma_hfq = Column(Double, nullable=True, info={"name": "PSYMA(后复权)"}, comment="PSYMA(后复权)")
-        psyma_qfq = Column(Double, nullable=True, info={"name": "PSYMA(前复权)"}, comment="PSYMA(前复权)")
-        roc_bfq = Column(Double, nullable=True, info={"name": "ROC(不复权)"}, comment="ROC(不复权)")
-        roc_hfq = Column(Double, nullable=True, info={"name": "ROC(后复权)"}, comment="ROC(后复权)")
-        roc_qfq = Column(Double, nullable=True, info={"name": "ROC(前复权)"}, comment="ROC(前复权)")
-        maroc_bfq = Column(Double, nullable=True, info={"name": "MAROC(不复权)"}, comment="MAROC(不复权)")
-        maroc_hfq = Column(Double, nullable=True, info={"name": "MAROC(后复权)"}, comment="MAROC(后复权)")
-        maroc_qfq = Column(Double, nullable=True, info={"name": "MAROC(前复权)"}, comment="MAROC(前复权)")
-        rsi_bfq_12 = Column(Double, nullable=True, info={"name": "RSI_12(不复权)"}, comment="RSI_12(不复权)")
-        rsi_bfq_24 = Column(Double, nullable=True, info={"name": "RSI_24(不复权)"}, comment="RSI_24(不复权)")
-        rsi_bfq_6 = Column(Double, nullable=True, info={"name": "RSI_6(不复权)"}, comment="RSI_6(不复权)")
-        rsi_hfq_12 = Column(Double, nullable=True, info={"name": "RSI_12(后复权)"}, comment="RSI_12(后复权)")
-        rsi_hfq_24 = Column(Double, nullable=True, info={"name": "RSI_24(后复权)"}, comment="RSI_24(后复权)")
-        rsi_hfq_6 = Column(Double, nullable=True, info={"name": "RSI_6(后复权)"}, comment="RSI_6(后复权)")
-        rsi_qfq_12 = Column(Double, nullable=True, info={"name": "RSI_12(前复权)"}, comment="RSI_12(前复权)")
-        rsi_qfq_24 = Column(Double, nullable=True, info={"name": "RSI_24(前复权)"}, comment="RSI_24(前复权)")
-        rsi_qfq_6 = Column(Double, nullable=True, info={"name": "RSI_6(前复权)"}, comment="RSI_6(前复权)")
-        taq_down_bfq = Column(
-            Double, nullable=True, info={"name": "唐安奇通道下轨(不复权)"}, comment="唐安奇通道下轨(不复权)"
-        )
-        taq_down_hfq = Column(
-            Double, nullable=True, info={"name": "唐安奇通道下轨(后复权)"}, comment="唐安奇通道下轨(后复权)"
-        )
-        taq_down_qfq = Column(
-            Double, nullable=True, info={"name": "唐安奇通道下轨(前复权)"}, comment="唐安奇通道下轨(前复权)"
-        )
-        taq_mid_bfq = Column(
-            Double, nullable=True, info={"name": "唐安奇通道中轨(不复权)"}, comment="唐安奇通道中轨(不复权)"
-        )
-        taq_mid_hfq = Column(
-            Double, nullable=True, info={"name": "唐安奇通道中轨(后复权)"}, comment="唐安奇通道中轨(后复权)"
-        )
-        taq_mid_qfq = Column(
-            Double, nullable=True, info={"name": "唐安奇通道中轨(前复权)"}, comment="唐安奇通道中轨(前复权)"
-        )
-        taq_up_bfq = Column(
-            Double, nullable=True, info={"name": "唐安奇通道上轨(不复权)"}, comment="唐安奇通道上轨(不复权)"
-        )
-        taq_up_hfq = Column(
-            Double, nullable=True, info={"name": "唐安奇通道上轨(后复权)"}, comment="唐安奇通道上轨(后复权)"
-        )
-        taq_up_qfq = Column(
-            Double, nullable=True, info={"name": "唐安奇通道上轨(前复权)"}, comment="唐安奇通道上轨(前复权)"
-        )
-        trix_bfq = Column(Double, nullable=True, info={"name": "TRIX(不复权)"}, comment="TRIX(不复权)")
-        trix_hfq = Column(Double, nullable=True, info={"name": "TRIX(后复权)"}, comment="TRIX(后复权)")
-        trix_qfq = Column(Double, nullable=True, info={"name": "TRIX(前复权)"}, comment="TRIX(前复权)")
-        trma_bfq = Column(Double, nullable=True, info={"name": "TRMA(不复权)"}, comment="TRMA(不复权)")
-        trma_hfq = Column(Double, nullable=True, info={"name": "TRMA(后复权)"}, comment="TRMA(后复权)")
-        trma_qfq = Column(Double, nullable=True, info={"name": "TRMA(前复权)"}, comment="TRMA(前复权)")
-        vr_bfq = Column(Double, nullable=True, info={"name": "VR(不复权)"}, comment="VR(不复权)")
-        vr_hfq = Column(Double, nullable=True, info={"name": "VR(后复权)"}, comment="VR(后复权)")
-        vr_qfq = Column(Double, nullable=True, info={"name": "VR(前复权)"}, comment="VR(前复权)")
-        wr_bfq = Column(Double, nullable=True, info={"name": "WR(不复权)"}, comment="WR(不复权)")
-        wr_hfq = Column(Double, nullable=True, info={"name": "WR(后复权)"}, comment="WR(后复权)")
-        wr_qfq = Column(Double, nullable=True, info={"name": "WR(前复权)"}, comment="WR(前复权)")
-        wr1_bfq = Column(Double, nullable=True, info={"name": "WR1(不复权)"}, comment="WR1(不复权)")
-        wr1_hfq = Column(Double, nullable=True, info={"name": "WR1(后复权)"}, comment="WR1(后复权)")
-        wr1_qfq = Column(Double, nullable=True, info={"name": "WR1(前复权)"}, comment="WR1(前复权)")
-        xsii_td1_bfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD1(不复权)"}, comment="薛斯通道II_TD1(不复权)"
-        )
-        xsii_td1_hfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD1(后复权)"}, comment="薛斯通道II_TD1(后复权)"
-        )
-        xsii_td1_qfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD1(前复权)"}, comment="薛斯通道II_TD1(前复权)"
-        )
-        xsii_td2_bfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD2(不复权)"}, comment="薛斯通道II_TD2(不复权)"
-        )
-        xsii_td2_hfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD2(后复权)"}, comment="薛斯通道II_TD2(后复权)"
-        )
-        xsii_td2_qfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD2(前复权)"}, comment="薛斯通道II_TD2(前复权)"
-        )
-        xsii_td3_bfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD3(不复权)"}, comment="薛斯通道II_TD3(不复权)"
-        )
-        xsii_td3_hfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD3(后复权)"}, comment="薛斯通道II_TD3(后复权)"
-        )
-        xsii_td3_qfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD3(前复权)"}, comment="薛斯通道II_TD3(前复权)"
-        )
-        xsii_td4_bfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD4(不复权)"}, comment="薛斯通道II_TD4(不复权)"
-        )
-        xsii_td4_hfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD4(后复权)"}, comment="薛斯通道II_TD4(后复权)"
-        )
-        xsii_td4_qfq = Column(
-            Double, nullable=True, info={"name": "薛斯通道II_TD4(前复权)"}, comment="薛斯通道II_TD4(前复权)"
-        )
-
-        # 唯一约束：同一股票同一日期只能有一条记录
-        __table_args__ = (
+    # 使用 type 动态创建类，确保类名唯一
+    attrs = {
+        "__database__": "zquant",
+        "__tablename__": table_name,
+        "__cnname__": "股票技术因子（量化因子）",
+        "__datasource__": "tushare",
+        "__api__": "stk_factor_pro",
+        "__docs__": "https://tushare.pro/document/2?doc_id=328",
+        "__columns__": {
+            "ts_code": {"type": String(10), "index": True},
+            "trade_date": {"type": Date, "index": True},
+        },
+        "id": Column(Integer, primary_key=True, index=True, autoincrement=True),
+        "ts_code": Column(String(10), nullable=False, index=True, info={"name": "股票代码"}, comment="股票代码"),
+        "trade_date": Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期"),
+        "open": Column(Double, nullable=True, info={"name": "开盘价"}, comment="开盘价"),
+        "open_hfq": Column(Double, nullable=True, info={"name": "开盘价（后复权）"}, comment="开盘价（后复权）"),
+        "open_qfq": Column(Double, nullable=True, info={"name": "开盘价（前复权）"}, comment="开盘价（前复权）"),
+        "high": Column(Double, nullable=True, info={"name": "最高价"}, comment="最高价"),
+        "high_hfq": Column(Double, nullable=True, info={"name": "最高价（后复权）"}, comment="最高价（后复权）"),
+        "high_qfq": Column(Double, nullable=True, info={"name": "最高价（前复权）"}, comment="最高价（前复权）"),
+        "low": Column(Double, nullable=True, info={"name": "最低价"}, comment="最低价"),
+        "low_hfq": Column(Double, nullable=True, info={"name": "最低价（后复权）"}, comment="最低价（后复权）"),
+        "low_qfq": Column(Double, nullable=True, info={"name": "最低价（前复权）"}, comment="最低价（前复权）"),
+        "close": Column(Double, nullable=True, info={"name": "收盘价"}, comment="收盘价"),
+        "close_hfq": Column(Double, nullable=True, info={"name": "收盘价（后复权）"}, comment="收盘价（后复权）"),
+        "close_qfq": Column(Double, nullable=True, info={"name": "收盘价（前复权）"}, comment="收盘价（前复权）"),
+        "pre_close": Column(Double, nullable=True, info={"name": "昨收价(前复权)"}, comment="昨收价(前复权)"),
+        "change": Column(Double, nullable=True, info={"name": "涨跌额"}, comment="涨跌额"),
+        "pct_chg": Column(Double, nullable=True, info={"name": "涨跌幅"}, comment="涨跌幅"),
+        "vol": Column(Double, nullable=True, info={"name": "成交量（手）"}, comment="成交量（手）"),
+        "amount": Column(Double, nullable=True, info={"name": "成交额（千元）"}, comment="成交额（千元）"),
+        "turnover_rate": Column(Double, nullable=True, info={"name": "换手率（%）"}, comment="换手率（%）"),
+        "turnover_rate_f": Column(Double, nullable=True, info={"name": "换手率（自由流通股）"}, comment="换手率（自由流通股）"),
+        "volume_ratio": Column(Double, nullable=True, info={"name": "量比"}, comment="量比"),
+        "pe": Column(Double, nullable=True, info={"name": "市盈率"}, comment="市盈率"),
+        "pe_ttm": Column(Double, nullable=True, info={"name": "市盈率（TTM）"}, comment="市盈率（TTM）"),
+        "pb": Column(Double, nullable=True, info={"name": "市净率"}, comment="市净率"),
+        "ps": Column(Double, nullable=True, info={"name": "市销率"}, comment="市销率"),
+        "ps_ttm": Column(Double, nullable=True, info={"name": "市销率（TTM）"}, comment="市销率（TTM）"),
+        "dv_ratio": Column(Double, nullable=True, info={"name": "股息率（%）"}, comment="股息率（%）"),
+        "dv_ttm": Column(Double, nullable=True, info={"name": "股息率（TTM）（%）"}, comment="股息率（TTM）（%）"),
+        "total_share": Column(Double, nullable=True, info={"name": "总股本（万股）"}, comment="总股本（万股）"),
+        "float_share": Column(Double, nullable=True, info={"name": "流通股本（万股）"}, comment="流通股本（万股）"),
+        "free_share": Column(Double, nullable=True, info={"name": "自由流通股本（万）"}, comment="自由流通股本（万）"),
+        "total_mv": Column(Double, nullable=True, info={"name": "总市值（万元）"}, comment="总市值（万元）"),
+        "circ_mv": Column(Double, nullable=True, info={"name": "流通市值（万元）"}, comment="流通市值（万元）"),
+        "adj_factor": Column(Double, nullable=True, info={"name": "复权因子"}, comment="复权因子"),
+        "asi_bfq": Column(Double, nullable=True, info={"name": "振动升降指标(不复权)"}, comment="振动升降指标(不复权)"),
+        "asi_hfq": Column(Double, nullable=True, info={"name": "振动升降指标(后复权)"}, comment="振动升降指标(后复权)"),
+        "asi_qfq": Column(Double, nullable=True, info={"name": "振动升降指标(前复权)"}, comment="振动升降指标(前复权)"),
+        "asit_bfq": Column(Double, nullable=True, info={"name": "振动升降指标T(不复权)"}, comment="振动升降指标T(不复权)"),
+        "asit_hfq": Column(Double, nullable=True, info={"name": "振动升降指标T(后复权)"}, comment="振动升降指标T(后复权)"),
+        "asit_qfq": Column(Double, nullable=True, info={"name": "振动升降指标T(前复权)"}, comment="振动升降指标T(前复权)"),
+        "atr_bfq": Column(Double, nullable=True, info={"name": "ATR真实波动均值(不复权)"}, comment="ATR真实波动均值(不复权)"),
+        "atr_hfq": Column(Double, nullable=True, info={"name": "ATR真实波动均值(后复权)"}, comment="ATR真实波动均值(后复权)"),
+        "atr_qfq": Column(Double, nullable=True, info={"name": "ATR真实波动均值(前复权)"}, comment="ATR真实波动均值(前复权)"),
+        "bbi_bfq": Column(Double, nullable=True, info={"name": "BBI多空指标(不复权)"}, comment="BBI多空指标(不复权)"),
+        "bbi_hfq": Column(Double, nullable=True, info={"name": "BBI多空指标(后复权)"}, comment="BBI多空指标(后复权)"),
+        "bbi_qfq": Column(Double, nullable=True, info={"name": "BBI多空指标(前复权)"}, comment="BBI多空指标(前复权)"),
+        "bias1_bfq": Column(Double, nullable=True, info={"name": "BIAS乖离率1(不复权)"}, comment="BIAS乖离率1(不复权)"),
+        "bias1_hfq": Column(Double, nullable=True, info={"name": "BIAS乖离率1(后复权)"}, comment="BIAS乖离率1(后复权)"),
+        "bias1_qfq": Column(Double, nullable=True, info={"name": "BIAS乖离率1(前复权)"}, comment="BIAS乖离率1(前复权)"),
+        "bias2_bfq": Column(Double, nullable=True, info={"name": "BIAS乖离率2(不复权)"}, comment="BIAS乖离率2(不复权)"),
+        "bias2_hfq": Column(Double, nullable=True, info={"name": "BIAS乖离率2(后复权)"}, comment="BIAS乖离率2(后复权)"),
+        "bias2_qfq": Column(Double, nullable=True, info={"name": "BIAS乖离率2(前复权)"}, comment="BIAS乖离率2(前复权)"),
+        "bias3_bfq": Column(Double, nullable=True, info={"name": "BIAS乖离率3(不复权)"}, comment="BIAS乖离率3(不复权)"),
+        "bias3_hfq": Column(Double, nullable=True, info={"name": "BIAS乖离率3(后复权)"}, comment="BIAS乖离率3(后复权)"),
+        "bias3_qfq": Column(Double, nullable=True, info={"name": "BIAS乖离率3(前复权)"}, comment="BIAS乖离率3(前复权)"),
+        "boll_lower_bfq": Column(Double, nullable=True, info={"name": "BOLL下轨(不复权)"}, comment="BOLL下轨(不复权)"),
+        "boll_lower_hfq": Column(Double, nullable=True, info={"name": "BOLL下轨(后复权)"}, comment="BOLL下轨(后复权)"),
+        "boll_lower_qfq": Column(Double, nullable=True, info={"name": "BOLL下轨(前复权)"}, comment="BOLL下轨(前复权)"),
+        "boll_mid_bfq": Column(Double, nullable=True, info={"name": "BOLL中轨(不复权)"}, comment="BOLL中轨(不复权)"),
+        "boll_mid_hfq": Column(Double, nullable=True, info={"name": "BOLL中轨(后复权)"}, comment="BOLL中轨(后复权)"),
+        "boll_mid_qfq": Column(Double, nullable=True, info={"name": "BOLL中轨(前复权)"}, comment="BOLL中轨(前复权)"),
+        "boll_upper_bfq": Column(Double, nullable=True, info={"name": "BOLL上轨(不复权)"}, comment="BOLL上轨(不复权)"),
+        "boll_upper_hfq": Column(Double, nullable=True, info={"name": "BOLL上轨(后复权)"}, comment="BOLL上轨(后复权)"),
+        "boll_upper_qfq": Column(Double, nullable=True, info={"name": "BOLL上轨(前复权)"}, comment="BOLL上轨(前复权)"),
+        "brar_ar_bfq": Column(Double, nullable=True, info={"name": "BRAR情绪-AR(不复权)"}, comment="BRAR情绪-AR(不复权)"),
+        "brar_ar_hfq": Column(Double, nullable=True, info={"name": "BRAR情绪-AR(后复权)"}, comment="BRAR情绪-AR(后复权)"),
+        "brar_ar_qfq": Column(Double, nullable=True, info={"name": "BRAR情绪-AR(前复权)"}, comment="BRAR情绪-AR(前复权)"),
+        "brar_br_bfq": Column(Double, nullable=True, info={"name": "BRAR情绪-BR(不复权)"}, comment="BRAR情绪-BR(不复权)"),
+        "brar_br_hfq": Column(Double, nullable=True, info={"name": "BRAR情绪-BR(后复权)"}, comment="BRAR情绪-BR(后复权)"),
+        "brar_br_qfq": Column(Double, nullable=True, info={"name": "BRAR情绪-BR(前复权)"}, comment="BRAR情绪-BR(前复权)"),
+        "cci_bfq": Column(Double, nullable=True, info={"name": "CCI(不复权)"}, comment="CCI(不复权)"),
+        "cci_hfq": Column(Double, nullable=True, info={"name": "CCI(后复权)"}, comment="CCI(后复权)"),
+        "cci_qfq": Column(Double, nullable=True, info={"name": "CCI(前复权)"}, comment="CCI(前复权)"),
+        "cr_bfq": Column(Double, nullable=True, info={"name": "CR(不复权)"}, comment="CR(不复权)"),
+        "cr_hfq": Column(Double, nullable=True, info={"name": "CR(后复权)"}, comment="CR(后复权)"),
+        "cr_qfq": Column(Double, nullable=True, info={"name": "CR(前复权)"}, comment="CR(前复权)"),
+        "dfma_dif_bfq": Column(Double, nullable=True, info={"name": "DFMA_DIF(不复权)"}, comment="DFMA_DIF(不复权)"),
+        "dfma_dif_hfq": Column(Double, nullable=True, info={"name": "DFMA_DIF(后复权)"}, comment="DFMA_DIF(后复权)"),
+        "dfma_dif_qfq": Column(Double, nullable=True, info={"name": "DFMA_DIF(前复权)"}, comment="DFMA_DIF(前复权)"),
+        "dfma_difma_bfq": Column(Double, nullable=True, info={"name": "DFMA_DIFMA(不复权)"}, comment="DFMA_DIFMA(不复权)"),
+        "dfma_difma_hfq": Column(Double, nullable=True, info={"name": "DFMA_DIFMA(后复权)"}, comment="DFMA_DIFMA(后复权)"),
+        "dfma_difma_qfq": Column(Double, nullable=True, info={"name": "DFMA_DIFMA(前复权)"}, comment="DFMA_DIFMA(前复权)"),
+        "dmi_adx_bfq": Column(Double, nullable=True, info={"name": "DMI_ADX(不复权)"}, comment="DMI_ADX(不复权)"),
+        "dmi_adx_hfq": Column(Double, nullable=True, info={"name": "DMI_ADX(后复权)"}, comment="DMI_ADX(后复权)"),
+        "dmi_adx_qfq": Column(Double, nullable=True, info={"name": "DMI_ADX(前复权)"}, comment="DMI_ADX(前复权)"),
+        "dmi_adxr_bfq": Column(Double, nullable=True, info={"name": "DMI_ADXR(不复权)"}, comment="DMI_ADXR(不复权)"),
+        "dmi_adxr_hfq": Column(Double, nullable=True, info={"name": "DMI_ADXR(后复权)"}, comment="DMI_ADXR(后复权)"),
+        "dmi_adxr_qfq": Column(Double, nullable=True, info={"name": "DMI_ADXR(前复权)"}, comment="DMI_ADXR(前复权)"),
+        "dmi_mdi_bfq": Column(Double, nullable=True, info={"name": "DMI_MDI(不复权)"}, comment="DMI_MDI(不复权)"),
+        "dmi_mdi_hfq": Column(Double, nullable=True, info={"name": "DMI_MDI(后复权)"}, comment="DMI_MDI(后复权)"),
+        "dmi_mdi_qfq": Column(Double, nullable=True, info={"name": "DMI_MDI(前复权)"}, comment="DMI_MDI(前复权)"),
+        "dmi_pdi_bfq": Column(Double, nullable=True, info={"name": "DMI_PDI(不复权)"}, comment="DMI_PDI(不复权)"),
+        "dmi_pdi_hfq": Column(Double, nullable=True, info={"name": "DMI_PDI(后复权)"}, comment="DMI_PDI(后复权)"),
+        "dmi_pdi_qfq": Column(Double, nullable=True, info={"name": "DMI_PDI(前复权)"}, comment="DMI_PDI(前复权)"),
+        "downdays": Column(Double, nullable=True, info={"name": "连跌天数"}, comment="连跌天数"),
+        "updays": Column(Double, nullable=True, info={"name": "连涨天数"}, comment="连涨天数"),
+        "dpo_bfq": Column(Double, nullable=True, info={"name": "DPO(不复权)"}, comment="DPO(不复权)"),
+        "dpo_hfq": Column(Double, nullable=True, info={"name": "DPO(后复权)"}, comment="DPO(后复权)"),
+        "dpo_qfq": Column(Double, nullable=True, info={"name": "DPO(前复权)"}, comment="DPO(前复权)"),
+        "madpo_bfq": Column(Double, nullable=True, info={"name": "MADPO(不复权)"}, comment="MADPO(不复权)"),
+        "madpo_hfq": Column(Double, nullable=True, info={"name": "MADPO(后复权)"}, comment="MADPO(后复权)"),
+        "madpo_qfq": Column(Double, nullable=True, info={"name": "MADPO(前复权)"}, comment="MADPO(前复权)"),
+        "ema_bfq_10": Column(Double, nullable=True, info={"name": "EMA_10(不复权)"}, comment="EMA_10(不复权)"),
+        "ema_bfq_20": Column(Double, nullable=True, info={"name": "EMA_20(不复权)"}, comment="EMA_20(不复权)"),
+        "ema_bfq_250": Column(Double, nullable=True, info={"name": "EMA_250(不复权)"}, comment="EMA_250(不复权)"),
+        "ema_bfq_30": Column(Double, nullable=True, info={"name": "EMA_30(不复权)"}, comment="EMA_30(不复权)"),
+        "ema_bfq_5": Column(Double, nullable=True, info={"name": "EMA_5(不复权)"}, comment="EMA_5(不复权)"),
+        "ema_bfq_60": Column(Double, nullable=True, info={"name": "EMA_60(不复权)"}, comment="EMA_60(不复权)"),
+        "ema_bfq_90": Column(Double, nullable=True, info={"name": "EMA_90(不复权)"}, comment="EMA_90(不复权)"),
+        "ema_hfq_10": Column(Double, nullable=True, info={"name": "EMA_10(后复权)"}, comment="EMA_10(后复权)"),
+        "ema_hfq_20": Column(Double, nullable=True, info={"name": "EMA_20(后复权)"}, comment="EMA_20(后复权)"),
+        "ema_hfq_250": Column(Double, nullable=True, info={"name": "EMA_250(后复权)"}, comment="EMA_250(后复权)"),
+        "ema_hfq_30": Column(Double, nullable=True, info={"name": "EMA_30(后复权)"}, comment="EMA_30(后复权)"),
+        "ema_hfq_5": Column(Double, nullable=True, info={"name": "EMA_5(后复权)"}, comment="EMA_5(后复权)"),
+        "ema_hfq_60": Column(Double, nullable=True, info={"name": "EMA_60(后复权)"}, comment="EMA_60(后复权)"),
+        "ema_hfq_90": Column(Double, nullable=True, info={"name": "EMA_90(后复权)"}, comment="EMA_90(后复权)"),
+        "ema_qfq_10": Column(Double, nullable=True, info={"name": "EMA_10(前复权)"}, comment="EMA_10(前复权)"),
+        "ema_qfq_20": Column(Double, nullable=True, info={"name": "EMA_20(前复权)"}, comment="EMA_20(前复权)"),
+        "ema_qfq_250": Column(Double, nullable=True, info={"name": "EMA_250(前复权)"}, comment="EMA_250(前复权)"),
+        "ema_qfq_30": Column(Double, nullable=True, info={"name": "EMA_30(前复权)"}, comment="EMA_30(前复权)"),
+        "ema_qfq_5": Column(Double, nullable=True, info={"name": "EMA_5(前复权)"}, comment="EMA_5(前复权)"),
+        "ema_qfq_60": Column(Double, nullable=True, info={"name": "EMA_60(前复权)"}, comment="EMA_60(前复权)"),
+        "ema_qfq_90": Column(Double, nullable=True, info={"name": "EMA_90(前复权)"}, comment="EMA_90(前复权)"),
+        "emv_bfq": Column(Double, nullable=True, info={"name": "EMV(不复权)"}, comment="EMV(不复权)"),
+        "emv_hfq": Column(Double, nullable=True, info={"name": "EMV(后复权)"}, comment="EMV(后复权)"),
+        "emv_qfq": Column(Double, nullable=True, info={"name": "EMV(前复权)"}, comment="EMV(前复权)"),
+        "maemv_bfq": Column(Double, nullable=True, info={"name": "MAEMV(不复权)"}, comment="MAEMV(不复权)"),
+        "maemv_hfq": Column(Double, nullable=True, info={"name": "MAEMV(后复权)"}, comment="MAEMV(后复权)"),
+        "maemv_qfq": Column(Double, nullable=True, info={"name": "MAEMV(前复权)"}, comment="MAEMV(前复权)"),
+        "expma_12_bfq": Column(Double, nullable=True, info={"name": "EXPMA_12(不复权)"}, comment="EXPMA_12(不复权)"),
+        "expma_12_hfq": Column(Double, nullable=True, info={"name": "EXPMA_12(后复权)"}, comment="EXPMA_12(后复权)"),
+        "expma_12_qfq": Column(Double, nullable=True, info={"name": "EXPMA_12(前复权)"}, comment="EXPMA_12(前复权)"),
+        "expma_50_bfq": Column(Double, nullable=True, info={"name": "EXPMA_50(不复权)"}, comment="EXPMA_50(不复权)"),
+        "expma_50_hfq": Column(Double, nullable=True, info={"name": "EXPMA_50(后复权)"}, comment="EXPMA_50(后复权)"),
+        "expma_50_qfq": Column(Double, nullable=True, info={"name": "EXPMA_50(前复权)"}, comment="EXPMA_50(前复权)"),
+        "kdj_bfq": Column(Double, nullable=True, info={"name": "KDJ(不复权)"}, comment="KDJ(不复权)"),
+        "kdj_hfq": Column(Double, nullable=True, info={"name": "KDJ(后复权)"}, comment="KDJ(后复权)"),
+        "kdj_qfq": Column(Double, nullable=True, info={"name": "KDJ(前复权)"}, comment="KDJ(前复权)"),
+        "kdj_d_bfq": Column(Double, nullable=True, info={"name": "KDJ_D(不复权)"}, comment="KDJ_D(不复权)"),
+        "kdj_d_hfq": Column(Double, nullable=True, info={"name": "KDJ_D(后复权)"}, comment="KDJ_D(后复权)"),
+        "kdj_d_qfq": Column(Double, nullable=True, info={"name": "KDJ_D(前复权)"}, comment="KDJ_D(前复权)"),
+        "kdj_k_bfq": Column(Double, nullable=True, info={"name": "KDJ_K(不复权)"}, comment="KDJ_K(不复权)"),
+        "kdj_k_hfq": Column(Double, nullable=True, info={"name": "KDJ_K(后复权)"}, comment="KDJ_K(后复权)"),
+        "kdj_k_qfq": Column(Double, nullable=True, info={"name": "KDJ_K(前复权)"}, comment="KDJ_K(前复权)"),
+        "ktn_down_bfq": Column(Double, nullable=True, info={"name": "肯特纳通道下轨(不复权)"}, comment="肯特纳通道下轨(不复权)"),
+        "ktn_down_hfq": Column(Double, nullable=True, info={"name": "肯特纳通道下轨(后复权)"}, comment="肯特纳通道下轨(后复权)"),
+        "ktn_down_qfq": Column(Double, nullable=True, info={"name": "肯特纳通道下轨(前复权)"}, comment="肯特纳通道下轨(前复权)"),
+        "ktn_mid_bfq": Column(Double, nullable=True, info={"name": "肯特纳通道中轨(不复权)"}, comment="肯特纳通道中轨(不复权)"),
+        "ktn_mid_hfq": Column(Double, nullable=True, info={"name": "肯特纳通道中轨(后复权)"}, comment="肯特纳通道中轨(后复权)"),
+        "ktn_mid_qfq": Column(Double, nullable=True, info={"name": "肯特纳通道中轨(前复权)"}, comment="肯特纳通道中轨(前复权)"),
+        "ktn_upper_bfq": Column(Double, nullable=True, info={"name": "肯特纳通道上轨(不复权)"}, comment="肯特纳通道上轨(不复权)"),
+        "ktn_upper_hfq": Column(Double, nullable=True, info={"name": "肯特纳通道上轨(后复权)"}, comment="肯特纳通道上轨(后复权)"),
+        "ktn_upper_qfq": Column(Double, nullable=True, info={"name": "肯特纳通道上轨(前复权)"}, comment="肯特纳通道上轨(前复权)"),
+        "lowdays": Column(Double, nullable=True, info={"name": "近低价周期"}, comment="近低价周期"),
+        "topdays": Column(Double, nullable=True, info={"name": "近高价周期"}, comment="近高价周期"),
+        "ma_bfq_10": Column(Double, nullable=True, info={"name": "MA_10(不复权)"}, comment="MA_10(不复权)"),
+        "ma_bfq_20": Column(Double, nullable=True, info={"name": "MA_20(不复权)"}, comment="MA_20(不复权)"),
+        "ma_bfq_250": Column(Double, nullable=True, info={"name": "MA_250(不复权)"}, comment="MA_250(不复权)"),
+        "ma_bfq_30": Column(Double, nullable=True, info={"name": "MA_30(不复权)"}, comment="MA_30(不复权)"),
+        "ma_bfq_5": Column(Double, nullable=True, info={"name": "MA_5(不复权)"}, comment="MA_5(不复权)"),
+        "ma_bfq_60": Column(Double, nullable=True, info={"name": "MA_60(不复权)"}, comment="MA_60(不复权)"),
+        "ma_bfq_90": Column(Double, nullable=True, info={"name": "MA_90(不复权)"}, comment="MA_90(不复权)"),
+        "ma_hfq_10": Column(Double, nullable=True, info={"name": "MA_10(后复权)"}, comment="MA_10(后复权)"),
+        "ma_hfq_20": Column(Double, nullable=True, info={"name": "MA_20(后复权)"}, comment="MA_20(后复权)"),
+        "ma_hfq_250": Column(Double, nullable=True, info={"name": "MA_250(后复权)"}, comment="MA_250(后复权)"),
+        "ma_hfq_30": Column(Double, nullable=True, info={"name": "MA_30(后复权)"}, comment="MA_30(后复权)"),
+        "ma_hfq_5": Column(Double, nullable=True, info={"name": "MA_5(后复权)"}, comment="MA_5(后复权)"),
+        "ma_hfq_60": Column(Double, nullable=True, info={"name": "MA_60(后复权)"}, comment="MA_60(后复权)"),
+        "ma_hfq_90": Column(Double, nullable=True, info={"name": "MA_90(后复权)"}, comment="MA_90(后复权)"),
+        "ma_qfq_10": Column(Double, nullable=True, info={"name": "MA_10(前复权)"}, comment="MA_10(前复权)"),
+        "ma_qfq_20": Column(Double, nullable=True, info={"name": "MA_20(前复权)"}, comment="MA_20(前复权)"),
+        "ma_qfq_250": Column(Double, nullable=True, info={"name": "MA_250(前复权)"}, comment="MA_250(前复权)"),
+        "ma_qfq_30": Column(Double, nullable=True, info={"name": "MA_30(前复权)"}, comment="MA_30(前复权)"),
+        "ma_qfq_5": Column(Double, nullable=True, info={"name": "MA_5(前复权)"}, comment="MA_5(前复权)"),
+        "ma_qfq_60": Column(Double, nullable=True, info={"name": "MA_60(前复权)"}, comment="MA_60(前复权)"),
+        "ma_qfq_90": Column(Double, nullable=True, info={"name": "MA_90(前复权)"}, comment="MA_90(前复权)"),
+        "macd_bfq": Column(Double, nullable=True, info={"name": "MACD(不复权)"}, comment="MACD(不复权)"),
+        "macd_hfq": Column(Double, nullable=True, info={"name": "MACD(后复权)"}, comment="MACD(后复权)"),
+        "macd_qfq": Column(Double, nullable=True, info={"name": "MACD(前复权)"}, comment="MACD(前复权)"),
+        "macd_dea_bfq": Column(Double, nullable=True, info={"name": "MACD_DEA(不复权)"}, comment="MACD_DEA(不复权)"),
+        "macd_dea_hfq": Column(Double, nullable=True, info={"name": "MACD_DEA(后复权)"}, comment="MACD_DEA(后复权)"),
+        "macd_dea_qfq": Column(Double, nullable=True, info={"name": "MACD_DEA(前复权)"}, comment="MACD_DEA(前复权)"),
+        "macd_dif_bfq": Column(Double, nullable=True, info={"name": "MACD_DIF(不复权)"}, comment="MACD_DIF(不复权)"),
+        "macd_dif_hfq": Column(Double, nullable=True, info={"name": "MACD_DIF(后复权)"}, comment="MACD_DIF(后复权)"),
+        "macd_dif_qfq": Column(Double, nullable=True, info={"name": "MACD_DIF(前复权)"}, comment="MACD_DIF(前复权)"),
+        "mass_bfq": Column(Double, nullable=True, info={"name": "梅斯线(不复权)"}, comment="梅斯线(不复权)"),
+        "mass_hfq": Column(Double, nullable=True, info={"name": "梅斯线(后复权)"}, comment="梅斯线(后复权)"),
+        "mass_qfq": Column(Double, nullable=True, info={"name": "梅斯线(前复权)"}, comment="梅斯线(前复权)"),
+        "ma_mass_bfq": Column(Double, nullable=True, info={"name": "梅斯线MA(不复权)"}, comment="梅斯线MA(不复权)"),
+        "ma_mass_hfq": Column(Double, nullable=True, info={"name": "梅斯线MA(后复权)"}, comment="梅斯线MA(后复权)"),
+        "ma_mass_qfq": Column(Double, nullable=True, info={"name": "梅斯线MA(前复权)"}, comment="梅斯线MA(前复权)"),
+        "mfi_bfq": Column(Double, nullable=True, info={"name": "MFI(不复权)"}, comment="MFI(不复权)"),
+        "mfi_hfq": Column(Double, nullable=True, info={"name": "MFI(后复权)"}, comment="MFI(后复权)"),
+        "mfi_qfq": Column(Double, nullable=True, info={"name": "MFI(前复权)"}, comment="MFI(前复权)"),
+        "mtm_bfq": Column(Double, nullable=True, info={"name": "MTM(不复权)"}, comment="MTM(不复权)"),
+        "mtm_hfq": Column(Double, nullable=True, info={"name": "MTM(后复权)"}, comment="MTM(后复权)"),
+        "mtm_qfq": Column(Double, nullable=True, info={"name": "MTM(前复权)"}, comment="MTM(前复权)"),
+        "mtmma_bfq": Column(Double, nullable=True, info={"name": "MTMMA(不复权)"}, comment="MTMMA(不复权)"),
+        "mtmma_hfq": Column(Double, nullable=True, info={"name": "MTMMA(后复权)"}, comment="MTMMA(后复权)"),
+        "mtmma_qfq": Column(Double, nullable=True, info={"name": "MTMMA(前复权)"}, comment="MTMMA(前复权)"),
+        "obv_bfq": Column(Double, nullable=True, info={"name": "OBV(不复权)"}, comment="OBV(不复权)"),
+        "obv_hfq": Column(Double, nullable=True, info={"name": "OBV(后复权)"}, comment="OBV(后复权)"),
+        "obv_qfq": Column(Double, nullable=True, info={"name": "OBV(前复权)"}, comment="OBV(前复权)"),
+        "psy_bfq": Column(Double, nullable=True, info={"name": "PSY(不复权)"}, comment="PSY(不复权)"),
+        "psy_hfq": Column(Double, nullable=True, info={"name": "PSY(后复权)"}, comment="PSY(后复权)"),
+        "psy_qfq": Column(Double, nullable=True, info={"name": "PSY(前复权)"}, comment="PSY(前复权)"),
+        "psyma_bfq": Column(Double, nullable=True, info={"name": "PSYMA(不复权)"}, comment="PSYMA(不复权)"),
+        "psyma_hfq": Column(Double, nullable=True, info={"name": "PSYMA(后复权)"}, comment="PSYMA(后复权)"),
+        "psyma_qfq": Column(Double, nullable=True, info={"name": "PSYMA(前复权)"}, comment="PSYMA(前复权)"),
+        "roc_bfq": Column(Double, nullable=True, info={"name": "ROC(不复权)"}, comment="ROC(不复权)"),
+        "roc_hfq": Column(Double, nullable=True, info={"name": "ROC(后复权)"}, comment="ROC(后复权)"),
+        "roc_qfq": Column(Double, nullable=True, info={"name": "ROC(前复权)"}, comment="ROC(前复权)"),
+        "maroc_bfq": Column(Double, nullable=True, info={"name": "MAROC(不复权)"}, comment="MAROC(不复权)"),
+        "maroc_hfq": Column(Double, nullable=True, info={"name": "MAROC(后复权)"}, comment="MAROC(后复权)"),
+        "maroc_qfq": Column(Double, nullable=True, info={"name": "MAROC(前复权)"}, comment="MAROC(前复权)"),
+        "rsi_bfq_12": Column(Double, nullable=True, info={"name": "RSI_12(不复权)"}, comment="RSI_12(不复权)"),
+        "rsi_bfq_24": Column(Double, nullable=True, info={"name": "RSI_24(不复权)"}, comment="RSI_24(不复权)"),
+        "rsi_bfq_6": Column(Double, nullable=True, info={"name": "RSI_6(不复权)"}, comment="RSI_6(不复权)"),
+        "rsi_hfq_12": Column(Double, nullable=True, info={"name": "RSI_12(后复权)"}, comment="RSI_12(后复权)"),
+        "rsi_hfq_24": Column(Double, nullable=True, info={"name": "RSI_24(后复权)"}, comment="RSI_24(后复权)"),
+        "rsi_hfq_6": Column(Double, nullable=True, info={"name": "RSI_6(后复权)"}, comment="RSI_6(后复权)"),
+        "rsi_qfq_12": Column(Double, nullable=True, info={"name": "RSI_12(前复权)"}, comment="RSI_12(前复权)"),
+        "rsi_qfq_24": Column(Double, nullable=True, info={"name": "RSI_24(前复权)"}, comment="RSI_24(前复权)"),
+        "rsi_qfq_6": Column(Double, nullable=True, info={"name": "RSI_6(前复权)"}, comment="RSI_6(前复权)"),
+        "taq_down_bfq": Column(Double, nullable=True, info={"name": "唐安奇通道下轨(不复权)"}, comment="唐安奇通道下轨(不复权)"),
+        "taq_down_hfq": Column(Double, nullable=True, info={"name": "唐安奇通道下轨(后复权)"}, comment="唐安奇通道下轨(后复权)"),
+        "taq_down_qfq": Column(Double, nullable=True, info={"name": "唐安奇通道下轨(前复权)"}, comment="唐安奇通道下轨(前复权)"),
+        "taq_mid_bfq": Column(Double, nullable=True, info={"name": "唐安奇通道中轨(不复权)"}, comment="唐安奇通道中轨(不复权)"),
+        "taq_mid_hfq": Column(Double, nullable=True, info={"name": "唐安奇通道中轨(后复权)"}, comment="唐安奇通道中轨(后复权)"),
+        "taq_mid_qfq": Column(Double, nullable=True, info={"name": "唐安奇通道中轨(前复权)"}, comment="唐安奇通道中轨(前复权)"),
+        "taq_up_bfq": Column(Double, nullable=True, info={"name": "唐安奇通道上轨(不复权)"}, comment="唐安奇通道上轨(不复权)"),
+        "taq_up_hfq": Column(Double, nullable=True, info={"name": "唐安奇通道上轨(后复权)"}, comment="唐安奇通道上轨(后复权)"),
+        "taq_up_qfq": Column(Double, nullable=True, info={"name": "唐安奇通道上轨(前复权)"}, comment="唐安奇通道上轨(前复权)"),
+        "trix_bfq": Column(Double, nullable=True, info={"name": "TRIX(不复权)"}, comment="TRIX(不复权)"),
+        "trix_hfq": Column(Double, nullable=True, info={"name": "TRIX(后复权)"}, comment="TRIX(后复权)"),
+        "trix_qfq": Column(Double, nullable=True, info={"name": "TRIX(前复权)"}, comment="TRIX(前复权)"),
+        "trma_bfq": Column(Double, nullable=True, info={"name": "TRMA(不复权)"}, comment="TRMA(不复权)"),
+        "trma_hfq": Column(Double, nullable=True, info={"name": "TRMA(后复权)"}, comment="TRMA(后复权)"),
+        "trma_qfq": Column(Double, nullable=True, info={"name": "TRMA(前复权)"}, comment="TRMA(前复权)"),
+        "vr_bfq": Column(Double, nullable=True, info={"name": "VR(不复权)"}, comment="VR(不复权)"),
+        "vr_hfq": Column(Double, nullable=True, info={"name": "VR(后复权)"}, comment="VR(后复权)"),
+        "vr_qfq": Column(Double, nullable=True, info={"name": "VR(前复权)"}, comment="VR(前复权)"),
+        "wr_bfq": Column(Double, nullable=True, info={"name": "WR(不复权)"}, comment="WR(不复权)"),
+        "wr_hfq": Column(Double, nullable=True, info={"name": "WR(后复权)"}, comment="WR(后复权)"),
+        "wr_qfq": Column(Double, nullable=True, info={"name": "WR(前复权)"}, comment="WR(前复权)"),
+        "wr1_bfq": Column(Double, nullable=True, info={"name": "WR1(不复权)"}, comment="WR1(不复权)"),
+        "wr1_hfq": Column(Double, nullable=True, info={"name": "WR1(后复权)"}, comment="WR1(后复权)"),
+        "wr1_qfq": Column(Double, nullable=True, info={"name": "WR1(前复权)"}, comment="WR1(前复权)"),
+        "xsii_td1_bfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD1(不复权)"}, comment="薛斯通道II_TD1(不复权)"),
+        "xsii_td1_hfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD1(后复权)"}, comment="薛斯通道II_TD1(后复权)"),
+        "xsii_td1_qfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD1(前复权)"}, comment="薛斯通道II_TD1(前复权)"),
+        "xsii_td2_bfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD2(不复权)"}, comment="薛斯通道II_TD2(不复权)"),
+        "xsii_td2_hfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD2(后复权)"}, comment="薛斯通道II_TD2(后复权)"),
+        "xsii_td2_qfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD2(前复权)"}, comment="薛斯通道II_TD2(前复权)"),
+        "xsii_td3_bfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD3(不复权)"}, comment="薛斯通道II_TD3(不复权)"),
+        "xsii_td3_hfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD3(后复权)"}, comment="薛斯通道II_TD3(后复权)"),
+        "xsii_td3_qfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD3(前复权)"}, comment="薛斯通道II_TD3(前复权)"),
+        "xsii_td4_bfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD4(不复权)"}, comment="薛斯通道II_TD4(不复权)"),
+        "xsii_td4_hfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD4(后复权)"}, comment="薛斯通道II_TD4(后复权)"),
+        "xsii_td4_qfq": Column(Double, nullable=True, info={"name": "薛斯通道II_TD4(前复权)"}, comment="薛斯通道II_TD4(前复权)"),
+        "__table_args__": (
             UniqueConstraint("ts_code", "trade_date", name=constraint_name),
             Index(index_name, "ts_code", "trade_date"),
-        )
+        ),
+    }
 
-    return TustockStkFactorPro
+    return type(class_name, (Base, AuditMixin), attrs)
 
 
 # 专业版因子视图表名称
@@ -972,26 +872,18 @@ def get_spacex_factor_table_name(code: str) -> str:
     return f"zq_quant_factor_spacex_{table_suffix}"
 
 
-def create_spacex_factor_class(code: str):
+def create_spacex_factor_class(code: str, extra_columns: dict[str, Any] = None):
     """
     动态创建 SpacexFactor 模型类（按 code 分表）
 
     基础字段：
     - id: 主键（自增）
     - trade_date: 交易日期（对应 tablestructure 中的 date）
-    - code: 股票代码（6位）
-    - created_by: 创建人
-    - created_time: 创建时间
-    - updated_by: 修改人
-    - updated_time: 修改时间
-
-    主键：(trade_date, code)
-    索引：idx_trade_date
-
-    注意：因子列（如 turnover_rate）通过 ALTER TABLE ADD COLUMN 动态添加
+    - ts_code: 股票代码（如：000001.SZ）
 
     Args:
         code: 股票代码（如：000001.SZ 或 000001）
+        extra_columns: 额外的因子列映射字典 {列名: 类型}，类型默认为 Double
 
     Returns:
         SQLAlchemy 模型类
@@ -1004,41 +896,41 @@ def create_spacex_factor_class(code: str):
         code_part = code
     table_suffix = code_part.replace("-", "_").lower()
 
+    # 类名必须唯一，避免 SQLAlchemy 警告
+    class_name = f"SpacexFactor_{table_suffix}"
+
     # 在类定义外部定义约束和索引名称，确保可以在类内部访问
     constraint_name = f"uq_spacex_factor_{table_suffix}_ts_code_date"
     index_name = f"idx_spacex_factor_{table_suffix}_trade_date_code"
 
-    class SpacexFactor(Base, AuditMixin):
-        """自定义量化因子结果表"""
-
-        __database__ = "zquant"  # 数据库名称
-        __tablename__ = table_name  # 数据表名称（动态）
-        __cnname__ = "自定义量化因子"  # 数据表中文名称
-        __datasource__ = "二次加工"  # 数据源
-        __columns__ = {
-            "ts_code": {
-                "type": String(10),  # 类型
-                "index": True,  # 索引
-            },
-            "trade_date": {
-                "type": Date,  # 类型
-                "index": True,  # 索引
-            },
-        }
-
-        id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-        ts_code = Column(
-            String(10), nullable=False, index=True, info={"name": "TS代码"}, comment="TS代码，如：000001.SZ"
-        )
-        trade_date = Column(Date, nullable=False, index=True, info={"name": "交易日期"}, comment="交易日期")
-
-        # 唯一约束：同一股票同一日期只能有一条记录
-        __table_args__ = (
+    # 基础字段定义
+    attrs = {
+        "__database__": "zquant",
+        "__tablename__": table_name,
+        "__cnname__": "自定义量化因子",
+        "__datasource__": "二次加工",
+        "__columns__": {
+            "ts_code": {"type": String(10), "index": True},
+            "trade_date": {"type": Date, "index": True},
+        },
+        "id": Column(Integer, primary_key=True, autoincrement=True),
+        "ts_code": Column(String(10), nullable=False, info={"name": "TS代码"}, comment="TS代码，如：000001.SZ"),
+        "trade_date": Column(Date, nullable=False, info={"name": "交易日期"}, comment="交易日期"),
+        "__table_args__": (
             UniqueConstraint("ts_code", "trade_date", name=constraint_name),
-            Index(index_name, "ts_code", "trade_date"),
-        )
+        ),
+    }
 
-    return SpacexFactor
+    # 添加额外的因子列
+    if extra_columns:
+        for col_name, col_type in extra_columns.items():
+            if col_name not in attrs:
+                # 如果传入的是类型，则直接使用；否则默认为 Double
+                final_type = col_type if hasattr(col_type, '__visit_name__') else Double
+                attrs[col_name] = Column(final_type, nullable=True, comment=f"因子: {col_name}")
+                attrs["__columns__"][col_name] = {"type": final_type, "index": False}
+
+    return type(class_name, (Base, AuditMixin), attrs)
 
 
 # zq_stats_
@@ -1074,6 +966,13 @@ class DataOperationLog(Base, AuditMixin):
     )
     error_message = Column(String(500), nullable=True, info={"name": "错误信息"}, comment="错误信息")
     start_time = Column(DateTime, nullable=True, index=True, info={"name": "开始时间"}, comment="开始时间")
+
+    @validates("error_message")
+    def validate_error_message(self, key, value):
+        """自动截断过长的错误信息，防止数据库写入失败"""
+        if value and len(value) > 500:
+            return value[:490] + "...(截断)"
+        return value
     end_time = Column(DateTime, nullable=True, info={"name": "结束时间"}, comment="结束时间")
     duration_seconds = Column(Float, nullable=True, info={"name": "耗时(秒)"}, comment="耗时(秒)")
 
@@ -1243,6 +1142,30 @@ class StockFilterResult(Base, AuditMixin):
         Integer, ForeignKey("zq_quant_stock_filter_strategy.id"), nullable=False, index=True, info={"name": "策略ID"}, comment="策略ID"
     )
     strategy_name = Column(String(100), nullable=False, info={"name": "策略名称"}, comment="策略名称")
+
+    # Denormalized columns from zq_quant_factor_spacex_{code}
+    ma5_tr = Column(Double, nullable=True, info={"name": "5日均换手率"}, comment="5日均换手率")
+    ma10_tr = Column(Double, nullable=True, info={"name": "10日均换手率"}, comment="10日均换手率")
+    ma20_tr = Column(Double, nullable=True, info={"name": "20日均换手率"}, comment="20日均换手率")
+    ma30_tr = Column(Double, nullable=True, info={"name": "30日均换手率"}, comment="30日均换手率")
+    ma60_tr = Column(Double, nullable=True, info={"name": "60日均换手率"}, comment="60日均换手率")
+    ma90_tr = Column(Double, nullable=True, info={"name": "90日均换手率"}, comment="90日均换手率")
+    theday_turnover_volume = Column(Double, nullable=True, info={"name": "当日成交额(相对于250日均)"}, comment="当日成交额(相对于250日均)")
+    total5_turnover_volume = Column(Double, nullable=True, info={"name": "5日累计成交额(相对于250日均)"}, comment="5日累计成交额(相对于250日均)")
+    total10_turnover_volume = Column(Double, nullable=True, info={"name": "10日累计成交额(相对于250日均)"}, comment="10日累计成交额(相对于250日均)")
+    total20_turnover_volume = Column(Double, nullable=True, info={"name": "20日累计成交额(相对于250日均)"}, comment="20日累计成交额(相对于250日均)")
+    total30_turnover_volume = Column(Double, nullable=True, info={"name": "30日累计成交额(相对于250日均)"}, comment="30日累计成交额(相对于250日均)")
+    total60_turnover_volume = Column(Double, nullable=True, info={"name": "60日累计成交额(相对于250日均)"}, comment="60日累计成交额(相对于250日均)")
+    total90_turnover_volume = Column(Double, nullable=True, info={"name": "90日累计成交额(相对于250日均)"}, comment="90日累计成交额(相对于250日均)")
+    theday_xcross = Column(Integer, nullable=True, info={"name": "当日是否小十字"}, comment="当日是否小十字")
+    total5_xcross = Column(Integer, nullable=True, info={"name": "5日累计小十字"}, comment="5日累计小十字")
+    total10_xcross = Column(Integer, nullable=True, info={"name": "10日累计小十字"}, comment="10日累计小十字")
+    total20_xcross = Column(Integer, nullable=True, info={"name": "20日累计小十字"}, comment="20日累计小十字")
+    total30_xcross = Column(Integer, nullable=True, info={"name": "30日累计小十字"}, comment="30日累计小十字")
+    total60_xcross = Column(Integer, nullable=True, info={"name": "60日累计小十字"}, comment="60日累计小十字")
+    total90_xcross = Column(Integer, nullable=True, info={"name": "90日累计小十字"}, comment="90日累计小十字")
+    halfyear_active_times = Column(Integer, nullable=True, info={"name": "半年内活跃次数"}, comment="半年内活跃次数")
+    halfyear_hsl_times = Column(Integer, nullable=True, info={"name": "半年内换手率次数"}, comment="半年内换手率次数")
     
     # Denormalized columns from zq_data_tustock_stockbasic
     symbol = Column(String(6), nullable=True, info={"name": "股票代码"}, comment="股票代码（6位数字）")

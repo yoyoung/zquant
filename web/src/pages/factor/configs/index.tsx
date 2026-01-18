@@ -22,6 +22,7 @@
 
 import { ProTable } from '@ant-design/pro-components';
 import { Button, Tag, Popconfirm, message, Modal, Form, Select, Switch, Space, Alert } from 'antd';
+import SelectWithAll from '@/components/SelectWithAll';
 import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import React, { useRef, useState, useEffect } from 'react';
@@ -410,7 +411,7 @@ const FactorConfigs: React.FC = () => {
       >
         <Form form={form} layout="vertical">
           <Form.Item name="factor_id" label="因子" rules={[{ required: true, message: '请选择因子' }]}>
-            <Select
+            <SelectWithAll
               placeholder="选择因子"
               disabled={!!editingFactorId}
               onChange={(value) => {
@@ -424,6 +425,7 @@ const FactorConfigs: React.FC = () => {
                 label: `${f.cn_name} (${f.factor_name})`, 
                 value: f.id 
               }))}
+              allValue=""
             />
           </Form.Item>
 
@@ -461,13 +463,14 @@ const FactorConfigs: React.FC = () => {
                         rules={[{ required: true, message: '请选择模型' }]}
                         style={{ flex: 1 }}
                       >
-                        <Select
+                        <SelectWithAll
                           placeholder="选择模型"
                           disabled={!selectedFactorId}
                           options={factorModels.map((m) => ({ 
                             label: `${m.model_name} (${m.model_code})${m.is_default ? ' [默认]' : ''}`, 
                             value: m.id 
                           }))}
+                          allValue=""
                         />
                       </Form.Item>
                       <Form.Item

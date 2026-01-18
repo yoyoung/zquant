@@ -43,15 +43,21 @@ def parse_date_field(value: Any) -> date | None:
     Returns:
         解析后的date对象，如果无法解析则返回None
     """
-    if value is None or pd.isna(value):
+    if value is None or pd.isna(value) or value is pd.NaT:
         return None
 
     if isinstance(value, date):
         return value
 
     if isinstance(value, str):
+        # 处理空字符串或仅包含空格的字符串
+        if not value.strip():
+            return None
         try:
-            return pd.to_datetime(value).date()
+            dt = pd.to_datetime(value)
+            if pd.isna(dt):
+                return None
+            return dt.date()
         except (ValueError, TypeError):
             return None
 

@@ -30,6 +30,7 @@ from loguru import logger
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
+from zquant.config import settings
 from zquant.data.etl.tushare import TushareClient
 from zquant.data.storage import DataStorage
 from zquant.data.storage_base import log_sql_statement
@@ -169,22 +170,52 @@ class DataScheduler:
 
         Returns:
             最后一个交易日，如果未找到则返回今天
+            如果当日是交易日，且时间是下午6点之前，则返回上一个交易日；如果是下午6点之后，则返回当天
         """
         try:
             from zquant.models.data import TustockTradecal
             from sqlalchemy import desc
+            from zquant.utils.date_helper import DateHelper
 
-            latest = (
-                db.query(TustockTradecal.cal_date)
-                .filter(TustockTradecal.is_open == 1, TustockTradecal.cal_date <= date.today())
-                .order_by(desc(TustockTradecal.cal_date))
-                .first()
-            )
+            today = date.today()
+            current_time = datetime.now()
+            cutoff_hour = 18  # 下午6点（18:00）
 
-            if latest and latest[0]:
-                return latest[0]
-            # 如果未找到交易日，返回今天
-            return date.today()
+            # 判断今天是否为交易日
+            is_today_trading_day = DateHelper.is_trading_day(db, today)
+
+            if is_today_trading_day:
+                # 如果今天是交易日
+                if current_time.hour < cutoff_hour:
+                    # 下午6点之前，返回上一个交易日
+                    previous = (
+                        db.query(TustockTradecal.cal_date)
+                        .filter(
+                            TustockTradecal.is_open == 1,
+                            TustockTradecal.cal_date < today,
+                        )
+                        .order_by(desc(TustockTradecal.cal_date))
+                        .first()
+                    )
+                    if previous and previous[0]:
+                        return previous[0]
+                    # 如果找不到上一个交易日，返回今天
+                    return today
+                else:
+                    # 下午6点之后，返回当天
+                    return today
+            else:
+                # 如果今天不是交易日，返回最近的交易日
+                latest = (
+                    db.query(TustockTradecal.cal_date)
+                    .filter(TustockTradecal.is_open == 1, TustockTradecal.cal_date <= today)
+                    .order_by(desc(TustockTradecal.cal_date))
+                    .first()
+                )
+                if latest and latest[0]:
+                    return latest[0]
+                # 如果未找到交易日，返回今天
+                return today
         except Exception as e:
             logger.warning(f"获取最近交易日失败: {e}，使用今天日期")
             return date.today()
@@ -265,6 +296,18 @@ class DataScheduler:
             
             df = self.tushare.get_stock_list()
             
+            # 根据配置过滤交易所
+            from zquant.config import settings
+            if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                if "exchange" in df.columns:
+                    before_count = len(df)
+                    df = df[df["exchange"].isin(settings.DEFAULT_EXCHANGES)]
+                    after_count = len(df)
+                    if before_count != after_count:
+                        logger.info(f"根据配置过滤交易所，过滤前: {before_count}, 过滤后: {after_count}, 交易所: {settings.DEFAULT_EXCHANGES}")
+                else:
+                    logger.warning("获取到的股票列表中缺少 'exchange' 列，无法按交易所过滤")
+            
             update_execution_progress(db, execution, message=f"获取到 {len(df)} 只股票，正在写入数据库...")
             count = self.storage.upsert_stocks(db, df, extra_info)
 
@@ -310,17 +353,19 @@ class DataScheduler:
                     logger.info(f"发现 {len(new_codes)} 只新增股票，开始初始化分表...")
                     
                     # 为新增代码初始化所有类型的分表
-                    init_result = PartitionManager.init_partition_tables_for_codes(db, new_codes)
-                    logger.info(
-                        f"分表初始化完成: 成功 {init_result['success']}/{init_result['total']}，"
-                        f"失败 {len(init_result['failed'])}"
-                    )
+                    # TODO 这里比较消耗性能，后续优化
+                    # init_result = PartitionManager.init_partition_tables_for_codes(db, new_codes)
+                    # logger.info(
+                    #     f"分表初始化完成: 成功 {init_result['success']}/{init_result['total']}，"
+                    #     f"失败 {len(init_result['failed'])}"
+                    # )
 
                     # 更新所有分表视图
-                    logger.info("更新所有分表视图...")
-                    view_result = PartitionManager.update_all_views(db)
-                    success_views = sum(1 for v in view_result.values() if v)
-                    logger.info(f"视图更新完成: {success_views}/{len(view_result)} 个视图更新成功")
+                    # TODO 这里比较消耗性能，后续优化
+                    # logger.info("更新所有分表视图...")
+                    # view_result = PartitionManager.update_all_views(db)
+                    # success_views = sum(1 for v in view_result.values() if v)
+                    # logger.info(f"视图更新完成: {success_views}/{len(view_result)} 个视图更新成功")
                 else:
                     logger.info("未检测到新增股票代码，跳过分表初始化")
 
@@ -390,9 +435,10 @@ class DataScheduler:
 
             self._ensure_tables_exist(db, [TustockTradecal.__tablename__])
 
-            # 默认同步上交所和深交所
+            # 默认同步配置的交易所列表
+            from zquant.config import settings
             if exchanges is None:
-                exchanges = ["SSE", "SZSE"]
+                exchanges = getattr(settings, "DEFAULT_EXCHANGES", ["SSE", "SZSE"])
 
             logger.info(f"开始同步交易日历，交易所：{exchanges}")
             update_execution_progress(db, execution, message=f"开始同步交易日历: {exchanges}")
@@ -672,13 +718,8 @@ class DataScheduler:
                     # 批量写入（按 ts_code 分组写入对应分表）
                     result = self.storage.upsert_daily_data_batch(db, all_data_df, extra_info, update_view=False)
 
-                    # 批量同步完成后，统一更新一次视图
-                    logger.info("批量同步完成，开始更新视图...")
+                    # 批量同步完成后，记录进度
                     update_execution_progress(db, execution, progress_percent=100, message="同步完成")
-                    from zquant.data.view_manager import create_or_update_daily_view
-
-                    create_or_update_daily_view(db)
-                    logger.info("视图更新完成")
 
                     logger.info(
                         f"所有股票日线数据同步完成: 成功 {result['success']}/{result['total']}，失败 {len(result['failed'])}"
@@ -841,19 +882,27 @@ class DataScheduler:
                     # 如果提供了 codelist，只同步列表中的股票
                     logger.info(f"指定股票列表，共 {len(codelist)} 只股票")
                     # 验证 codelist 中的股票是否存在，并按代码排序确保顺序稳定
-                    stocks = (
-                        db.query(Tustock)
-                        .filter(Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None))
-                        .order_by(Tustock.ts_code)
-                        .all()
+                    query = db.query(Tustock).filter(
+                        Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None)
                     )
+                    # 全局交易所过滤
+                    if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                        query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                        
+                    stocks = query.order_by(Tustock.ts_code).all()
                     found_ts_codes = {stock.ts_code for stock in stocks}
                     not_found = set(codelist) - found_ts_codes
                     if not_found:
                         logger.warning(f"以下TS代码在数据库中未找到或已退市: {not_found}")
                 else:
                     # 获取所有上市股票，并按代码排序确保顺序稳定
-                    stocks = db.query(Tustock).filter(Tustock.delist_date.is_(None)).order_by(Tustock.ts_code).all()
+                    query = db.query(Tustock).filter(Tustock.delist_date.is_(None))
+                    
+                    # 全局交易所过滤
+                    if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                        query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                        
+                    stocks = query.order_by(Tustock.ts_code).all()
 
                 # 处理恢复模式
                 resume_from_id = None
@@ -931,19 +980,12 @@ class DataScheduler:
                         logger.error(f"同步 {stock.ts_code} 失败: {e}")
                         failed.append(stock.ts_code)
 
-                update_execution_progress(db, execution, processed_items=total, message="循环同步完成，正在更新视图...")
+                update_execution_progress(db, execution, processed_items=total, message="循环同步完成")
 
                 # 如果提供了 codelist 且有未找到的股票，将它们添加到失败列表
                 if not_found:
                     failed.extend(list(not_found))
                     total += len(not_found)  # 更新总数
-
-                # 批量同步完成后，统一更新一次视图
-                logger.info("批量同步完成，开始更新视图...")
-                from zquant.data.view_manager import create_or_update_daily_view
-
-                create_or_update_daily_view(db)
-                logger.info("视图更新完成")
 
                 logger.info(f"所有股票日线数据同步完成: 成功 {success}/{total}，失败 {len(failed)}")
 
@@ -1170,13 +1212,8 @@ class DataScheduler:
                     # 批量写入（按 ts_code 分组写入对应分表）
                     result = self.storage.upsert_daily_basic_data_batch(db, all_data_df, extra_info, update_view=False)
 
-                    # 批量同步完成后，统一更新一次视图
-                    logger.info("批量同步完成，开始更新视图...")
+                    # 批量同步完成后，记录进度
                     update_execution_progress(db, execution, progress_percent=100, message="同步完成")
-                    from zquant.data.view_manager import create_or_update_daily_basic_view
-
-                    create_or_update_daily_basic_view(db)
-                    logger.info("视图更新完成")
 
                     logger.info(
                         f"所有股票每日指标数据同步完成: 成功 {result['success']}/{result['total']}，失败 {len(result['failed'])}"
@@ -1336,15 +1373,24 @@ class DataScheduler:
                 # 获取股票列表
                 if codelist:
                     # 验证并按代码排序确保顺序稳定
-                    stocks = (
-                        db.query(Tustock)
-                        .filter(Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None))
-                        .order_by(Tustock.ts_code)
-                        .all()
+                    query = db.query(Tustock).filter(
+                        Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None)
                     )
+                    
+                    # 全局交易所过滤
+                    if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                        query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                        
+                    stocks = query.order_by(Tustock.ts_code).all()
                 else:
                     # 按代码排序确保顺序稳定
-                    stocks = db.query(Tustock).filter(Tustock.delist_date.is_(None)).order_by(Tustock.ts_code).all()
+                    query = db.query(Tustock).filter(Tustock.delist_date.is_(None))
+                    
+                    # 全局交易所过滤
+                    if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                        query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                        
+                    stocks = query.order_by(Tustock.ts_code).all()
                 
                 # 处理恢复模式
                 resume_from_id = None
@@ -1423,14 +1469,7 @@ class DataScheduler:
                         logger.error(f"同步 {stock.ts_code} 失败: {e}")
                         failed.append(stock.ts_code)
 
-                update_execution_progress(db, execution, processed_items=total, message="循环同步完成，正在更新视图...")
-
-                # 批量同步完成后，统一更新一次视图
-                logger.info("批量同步完成，开始更新视图...")
-                from zquant.data.view_manager import create_or_update_daily_basic_view
-
-                create_or_update_daily_basic_view(db)
-                logger.info("视图更新完成")
+                update_execution_progress(db, execution, processed_items=total, message="循环同步完成")
 
                 logger.info(f"所有股票每日指标数据同步完成: 成功 {success}/{total}，失败 {len(failed)}")
 
@@ -1651,6 +1690,12 @@ class DataScheduler:
             extra_info: 额外信息字典，可包含 created_by 和 updated_by 字段
             codelist: TS代码列表（可选）
             execution: 执行记录对象（可选）
+
+        同步策略：
+            - 规则一（start_date == end_date）：
+              使用批量API（get_all_stk_factor_by_date）一次获取所有股票数据
+            - 规则二（start_date != end_date）：
+              循环调用API（get_stk_factor）获取每个股票数据
         """
         start_time = datetime.now()
         try:
@@ -1661,18 +1706,93 @@ class DataScheduler:
             # 确保基础表存在
             self._ensure_tables_exist(db, [Tustock.__tablename__])
 
+            # 判断是否为按天同步（开始日期和结束日期相同）
+            is_single_day = start_date and end_date and start_date == end_date
+
+            if is_single_day:
+                # 批量API同步模式（按天）：调用一次 API 获取所有股票数据，然后批量写入
+                logger.info(f"批量API同步模式（按天）：{start_date}")
+                update_execution_progress(db, execution, message=f"正在通过批量API获取因子数据: {start_date}")
+                
+                # 调用批量 API 获取所有股票数据
+                all_data_df = self.tushare.get_all_stk_factor_by_date(start_date)
+
+                if all_data_df.empty:
+                    logger.warning(f"{start_date} 无因子数据")
+                    return {"total": 0, "success": 0, "failed": []}
+
+                # 如果提供了 codelist，过滤数据
+                if codelist:
+                    before_count = len(all_data_df)
+                    all_data_df = all_data_df[all_data_df["ts_code"].isin(codelist)]
+                    after_count = len(all_data_df)
+                    logger.info(f"根据股票列表过滤：{before_count} -> {after_count} 条数据")
+                    if all_data_df.empty:
+                        logger.warning(f"{start_date} 在指定股票列表中无因子数据")
+                        return {"total": len(codelist), "success": 0, "failed": codelist}
+
+                logger.info(f"获取到 {len(all_data_df)} 条因子数据，涉及 {all_data_df['ts_code'].nunique()} 只股票")
+                update_execution_progress(db, execution, message=f"已获取 {len(all_data_df)} 条因子数据，准备写入数据库...")
+
+                # 批量写入（按 ts_code 分组写入对应分表）
+                result = self.storage.upsert_factor_data_batch(db, all_data_df, extra_info, update_view=False)
+
+                # 批量同步完成后，记录进度
+                update_execution_progress(db, execution, progress_percent=100, message="同步完成")
+
+                logger.info(
+                    f"所有股票因子数据同步完成: 成功 {result['success']}/{result['total']}，失败 {len(result['failed'])}"
+                )
+
+                # 记录操作日志
+                end_time = datetime.now()
+                created_by = extra_info.get("created_by", "scheduler") if extra_info else "scheduler"
+                from zquant.models.data import TUSTOCK_FACTOR_VIEW_NAME
+                
+                try:
+                    DataService.create_data_operation_log(
+                        db=db,
+                        table_name=TUSTOCK_FACTOR_VIEW_NAME,
+                        operation_type="sync",
+                        operation_result="success" if not result["failed"] else "partial_success",
+                        start_time=start_time,
+                        end_time=end_time,
+                        insert_count=result["success"],
+                        update_count=0,
+                        delete_count=0,
+                        created_by=created_by,
+                        data_source="tushare",
+                        api_interface="stk_factor",
+                        api_data_count=len(all_data_df),
+                    )
+                except Exception as log_error:
+                    logger.warning(f"记录操作日志失败: {log_error}")
+
+                return result
+
+            # 否则，进入循环模式
+            logger.info("循环同步模式（多天或特定列表）")
             # 获取所有股票列表
             if codelist:
                 # 验证并按代码排序确保顺序稳定
-                stocks = (
-                    db.query(Tustock)
-                    .filter(Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None))
-                    .order_by(Tustock.ts_code)
-                    .all()
+                query = db.query(Tustock).filter(
+                    Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None)
                 )
+                
+                # 全局交易所过滤
+                if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                    query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    
+                stocks = query.order_by(Tustock.ts_code).all()
             else:
                 # 按代码排序确保顺序稳定
-                stocks = db.query(Tustock).filter(Tustock.delist_date.is_(None)).order_by(Tustock.ts_code).all()
+                query = db.query(Tustock).filter(Tustock.delist_date.is_(None))
+                
+                # 全局交易所过滤
+                if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                    query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    
+                stocks = query.order_by(Tustock.ts_code).all()
             
             # 处理恢复模式
             resume_from_id = None
@@ -1750,14 +1870,7 @@ class DataScheduler:
                     logger.error(f"同步 {stock.ts_code} 因子数据失败: {e}")
                     failed.append(stock.ts_code)
 
-            update_execution_progress(db, execution, processed_items=total, message="循环同步完成，正在更新视图...")
-
-            # 批量同步完成后，统一更新一次视图
-            logger.info("批量同步完成，开始更新视图...")
-            from zquant.data.view_manager import create_or_update_factor_view
-
-            create_or_update_factor_view(db)
-            logger.info("视图更新完成")
+            update_execution_progress(db, execution, processed_items=total, message="循环同步完成")
 
             # 记录结束时间和结果
             end_time = datetime.now()
@@ -1981,6 +2094,12 @@ class DataScheduler:
             extra_info: 额外信息字典，可包含 created_by 和 updated_by 字段
             codelist: TS代码列表（可选）
             execution: 执行记录对象（可选）
+
+        同步策略：
+            - 规则一（start_date == end_date）：
+              使用批量API（get_all_stk_factor_pro_by_date）一次获取所有股票数据
+            - 规则二（start_date != end_date）：
+              循环调用API（get_stk_factor_pro）获取每个股票数据
         """
         start_time = datetime.now()
         try:
@@ -1991,18 +2110,93 @@ class DataScheduler:
             # 确保基础表存在
             self._ensure_tables_exist(db, [Tustock.__tablename__])
 
+            # 判断是否为按天同步（开始日期和结束日期相同）
+            is_single_day = start_date and end_date and start_date == end_date
+
+            if is_single_day:
+                # 批量API同步模式（按天）：调用一次 API 获取所有股票数据，然后批量写入
+                logger.info(f"批量API同步模式（按天）：{start_date}")
+                update_execution_progress(db, execution, message=f"正在通过批量API获取专业版因子数据: {start_date}")
+                
+                # 调用批量 API 获取所有股票数据
+                all_data_df = self.tushare.get_all_stk_factor_pro_by_date(start_date)
+
+                if all_data_df.empty:
+                    logger.warning(f"{start_date} 无专业版因子数据")
+                    return {"total": 0, "success": 0, "failed": []}
+
+                # 如果提供了 codelist，过滤数据
+                if codelist:
+                    before_count = len(all_data_df)
+                    all_data_df = all_data_df[all_data_df["ts_code"].isin(codelist)]
+                    after_count = len(all_data_df)
+                    logger.info(f"根据股票列表过滤：{before_count} -> {after_count} 条数据")
+                    if all_data_df.empty:
+                        logger.warning(f"{start_date} 在指定股票列表中无专业版因子数据")
+                        return {"total": len(codelist), "success": 0, "failed": codelist}
+
+                logger.info(f"获取到 {len(all_data_df)} 条专业版因子数据，涉及 {all_data_df['ts_code'].nunique()} 只股票")
+                update_execution_progress(db, execution, message=f"已获取 {len(all_data_df)} 条专业版因子数据，准备写入数据库...")
+
+                # 批量写入（按 ts_code 分组写入对应分表）
+                result = self.storage.upsert_stkfactorpro_data_batch(db, all_data_df, extra_info, update_view=False)
+
+                # 批量同步完成后，记录进度
+                update_execution_progress(db, execution, progress_percent=100, message="同步完成")
+
+                logger.info(
+                    f"所有股票专业版因子数据同步完成: 成功 {result['success']}/{result['total']}，失败 {len(result['failed'])}"
+                )
+
+                # 记录操作日志
+                end_time = datetime.now()
+                created_by = extra_info.get("created_by", "scheduler") if extra_info else "scheduler"
+                from zquant.models.data import TUSTOCK_STKFACTORPRO_VIEW_NAME
+                
+                try:
+                    DataService.create_data_operation_log(
+                        db=db,
+                        table_name=TUSTOCK_STKFACTORPRO_VIEW_NAME,
+                        operation_type="sync",
+                        operation_result="success" if not result["failed"] else "partial_success",
+                        start_time=start_time,
+                        end_time=end_time,
+                        insert_count=result["success"],
+                        update_count=0,
+                        delete_count=0,
+                        created_by=created_by,
+                        data_source="tushare",
+                        api_interface="stk_factor_pro",
+                        api_data_count=len(all_data_df),
+                    )
+                except Exception as log_error:
+                    logger.warning(f"记录操作日志失败: {log_error}")
+
+                return result
+
+            # 否则，进入循环模式
+            logger.info("循环同步模式（多天或特定列表）")
             # 获取所有股票列表
             if codelist:
                 # 验证并按代码排序确保顺序稳定
-                stocks = (
-                    db.query(Tustock)
-                    .filter(Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None))
-                    .order_by(Tustock.ts_code)
-                    .all()
+                query = db.query(Tustock).filter(
+                    Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None)
                 )
+                
+                # 全局交易所过滤
+                if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                    query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    
+                stocks = query.order_by(Tustock.ts_code).all()
             else:
                 # 按代码排序确保顺序稳定
-                stocks = db.query(Tustock).filter(Tustock.delist_date.is_(None)).order_by(Tustock.ts_code).all()
+                query = db.query(Tustock).filter(Tustock.delist_date.is_(None))
+                
+                # 全局交易所过滤
+                if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                    query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    
+                stocks = query.order_by(Tustock.ts_code).all()
             
             # 处理恢复模式
             resume_from_id = None
@@ -2080,14 +2274,7 @@ class DataScheduler:
                     logger.error(f"同步 {stock.ts_code} 专业版因子数据失败: {e}")
                     failed.append(stock.ts_code)
 
-            update_execution_progress(db, execution, processed_items=total, message="循环同步完成，正在更新视图...")
-
-            # 批量同步完成后，统一更新一次视图
-            logger.info("批量同步完成，开始更新视图...")
-            from zquant.data.view_manager import create_or_update_stkfactorpro_view
-
-            create_or_update_stkfactorpro_view(db)
-            logger.info("视图更新完成")
+            update_execution_progress(db, execution, processed_items=total, message="循环同步完成")
 
             # 记录结束时间和结果
             end_time = datetime.now()
@@ -2283,15 +2470,24 @@ class DataScheduler:
             # 获取所有上市股票
             if codelist:
                 # 验证并按代码排序确保顺序稳定
-                stocks = (
-                    db.query(Tustock)
-                    .filter(Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None))
-                    .order_by(Tustock.ts_code)
-                    .all()
+                query = db.query(Tustock).filter(
+                    Tustock.ts_code.in_(codelist), Tustock.delist_date.is_(None)
                 )
+                
+                # 全局交易所过滤
+                if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                    query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    
+                stocks = query.order_by(Tustock.ts_code).all()
             else:
                 # 按代码排序确保顺序稳定
-                stocks = db.query(Tustock).filter(Tustock.delist_date.is_(None)).order_by(Tustock.ts_code).all()
+                query = db.query(Tustock).filter(Tustock.delist_date.is_(None))
+                
+                # 全局交易所过滤
+                if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                    query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    
+                stocks = query.order_by(Tustock.ts_code).all()
             
             # 处理恢复模式
             resume_from_id = None

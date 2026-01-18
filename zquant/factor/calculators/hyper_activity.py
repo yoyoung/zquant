@@ -29,7 +29,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import text
+from sqlalchemy import text, Double, Integer
 from sqlalchemy.orm import Session
 
 from zquant.factor.calculators.base import BaseFactorCalculator
@@ -97,23 +97,34 @@ class HyperActivityCalculator(BaseFactorCalculator):
     def _calculate_turnover_factors(self, db: Session, code: str, trade_date: date) -> dict[str, Any] | None:
         """
         计算换手率因子
-
-        Returns:
-            包含换手率相关因子的字典
         """
         try:
             # 获取足够的历史数据（往前推90天，确保有足够交易日数据）
             start_date = trade_date - timedelta(days=90 * 2)
-            daily_basic_data = DataService.get_daily_basic_data(
-                db, ts_code=code, start_date=start_date, end_date=trade_date
-            )
+            
+            # 优先从缓存获取数据
+            if "daily_basic" in self.data_cache:
+                daily_basic_data = [
+                    r for r in self.data_cache["daily_basic"] 
+                    if start_date <= (date.fromisoformat(r["trade_date"]) if isinstance(r["trade_date"], str) else r["trade_date"]) <= trade_date
+                ]
+            else:
+                daily_basic_data = DataService.get_daily_basic_data(
+                    db, ts_code=code, start_date=start_date, end_date=trade_date
+                )
 
             if not daily_basic_data:
                 logger.warning(f"未找到 {code} 在 {start_date} 到 {trade_date} 期间的每日指标数据")
                 return None
 
             # 获取日线数据（用于获取成交额）
-            daily_data = DataService.get_daily_data(db, ts_code=code, start_date=start_date, end_date=trade_date)
+            if "daily" in self.data_cache:
+                daily_data = [
+                    r for r in self.data_cache["daily"] 
+                    if start_date <= (date.fromisoformat(r["trade_date"]) if isinstance(r["trade_date"], str) else r["trade_date"]) <= trade_date
+                ]
+            else:
+                daily_data = DataService.get_daily_data(db, ts_code=code, start_date=start_date, end_date=trade_date)
 
             # 将日线数据按日期索引
             daily_data_by_date = {}
@@ -195,15 +206,27 @@ class HyperActivityCalculator(BaseFactorCalculator):
 
     def _calculate_xcross_factors(self, db: Session, code: str, trade_date: date) -> dict[str, Any] | None:
         """
-        计算小十字因子（振幅≤3%且涨跌幅≤1%的K线统计）
-
-        Returns:
-            包含小十字相关因子的字典
+        计算小十字因子（振幅≤3%且涨跌幅≤1%且实体占比≤1%的K线统计）
+        
+        计算公式：
+        - 振幅 = (最高价 - 最低价) / 今收价 * 100
+        - 涨跌幅 = (收盘价 - 今收价) / 今收价 * 100
+        - 实体占比 = |开盘价 - 收盘价| / 今收价 * 100
+        
+        判断条件：振幅 <= 3.0% 且 |涨跌幅| <= 1.0% 且 实体占比 <= 1.0%
         """
         try:
             # 获取足够的历史数据（往前推90天）
             start_date = trade_date - timedelta(days=90 * 2)
-            daily_data = DataService.get_daily_data(db, ts_code=code, start_date=start_date, end_date=trade_date)
+            
+            # 优先从缓存获取数据
+            if "daily" in self.data_cache:
+                daily_data = [
+                    r for r in self.data_cache["daily"] 
+                    if start_date <= (date.fromisoformat(r["trade_date"]) if isinstance(r["trade_date"], str) else r["trade_date"]) <= trade_date
+                ]
+            else:
+                daily_data = DataService.get_daily_data(db, ts_code=code, start_date=start_date, end_date=trade_date)
 
             if not daily_data:
                 logger.warning(f"未找到 {code} 在 {start_date} 到 {trade_date} 期间的日线数据")
@@ -214,19 +237,27 @@ class HyperActivityCalculator(BaseFactorCalculator):
             for record in daily_data:
                 high = record.get("high")
                 low = record.get("low")
+                open_price = record.get("open")
+                close_price = record.get("close")
                 pre_close = record.get("pre_close")
-                pct_change = record.get("pct_chg")
                 record_date = record.get("trade_date")
 
-                if all(v is not None for v in [high, low, pre_close, pct_change, record_date]):
+                if all(v is not None for v in [high, low, open_price, close_price, pre_close, record_date]):
                     try:
                         if isinstance(record_date, str):
                             record_date = date.fromisoformat(record_date)
-                        # 计算振幅 = (最高价 - 最低价) / 昨收价 * 100
-                        amplitude = abs((float(high) - float(low)) / float(pre_close) * 100) if float(pre_close) > 0 else 0
-                        # 涨跌幅的绝对值
-                        pct_change_abs = abs(float(pct_change))
-                        valid_records.append((record_date, amplitude, pct_change_abs))
+                        
+                        # 振幅计算
+                        amplitude = (float(high) - float(low)) / float(close_price) * 100 if float(close_price) > 0 else 0
+                        
+                        # 涨跌幅计算（使用收盘价和昨收价计算）
+                        pct_chg = (float(close_price) - float(close_price)) / float(close_price) * 100 if float(close_price) > 0 else 0
+                        pct_chg_abs = abs(pct_chg)
+                        
+                        # 实体占比计算
+                        pct_change = abs(float(open_price) - float(close_price)) / float(close_price) * 100 if float(close_price) > 0 else 0
+                        
+                        valid_records.append((record_date, amplitude, pct_chg_abs, pct_change))
                     except (ValueError, TypeError):
                         continue
 
@@ -239,18 +270,21 @@ class HyperActivityCalculator(BaseFactorCalculator):
 
             result = {}
 
-            # 判断当日是否为小十字（振幅≤3%且涨跌幅≤1%）
+            # 判断当日是否为小十字（振幅≤3%且涨跌幅≤1%且实体占比≤1%）
             today_record = next((r for r in valid_records if r[0] == trade_date), None)
             if today_record:
-                amplitude, pct_change_abs = today_record[1], today_record[2]
-                result["theday_xcross"] = 1 if amplitude <= 3.0 and pct_change_abs <= 1.0 else 0
+                amplitude, pct_chg_abs, pct_change = today_record[1], today_record[2], today_record[3]
+                # 判断条件：振幅 <= 3.0% 且 涨跌幅绝对值 <= 1.0% 且 实体占比 <= 1.0%
+                is_small_cross = (amplitude <= 3.0) and (pct_chg_abs <= 1.0) and (pct_change <= 1.0)
+                result["theday_xcross"] = 1 if is_small_cross else 0
             else:
                 result["theday_xcross"] = 0
 
             # 计算5/10/20/30/60/90日小十字累计条数
             for days in [5, 10, 20, 30, 60, 90]:
                 recent_records = valid_records[-days:] if len(valid_records) >= days else valid_records
-                xcross_count = sum(1 for r in recent_records if r[1] <= 3.0 and r[2] <= 1.0)
+                # 判断条件：振幅 <= 3.0% 且 涨跌幅绝对值 <= 1.0% 且 实体占比 <= 1.0%
+                xcross_count = sum(1 for r in recent_records if (r[1] <= 3.0) and (r[2] <= 1.0) and (r[3] <= 1.0))
                 result[f"total{days}_xcross"] = xcross_count
 
             return result
@@ -262,19 +296,63 @@ class HyperActivityCalculator(BaseFactorCalculator):
     def _calculate_halfyear_factors(self, db: Session, code: str, trade_date: date) -> dict[str, Any] | None:
         """
         计算半年统计因子（半年内活跃次数、半年内换手率次数等）
-        
-        使用联合查询优化，直接在数据库层面过滤数据：
-        - 成交额 > 10亿（amount > 100000 千元）
-        - 换手率 >= 10%（turnover_rate >= 10）
-        - 总市值或流通市值在50~200亿之间（total_mv 或 circ_mv 在 500000~2000000 万元之间）
-
-        Returns:
-            包含半年统计相关因子的字典
         """
         try:
             # 计算半年前的日期（约180天）
             halfyear_start = trade_date - timedelta(days=180)
 
+            # 优先从缓存计算，避免频繁的 SQL JOIN 查询
+            if "daily" in self.data_cache and "daily_basic" in self.data_cache:
+                # 为了效率，将 daily 数据按日期建立索引
+                daily_map = {
+                    (r["trade_date"].isoformat() if isinstance(r["trade_date"], date) else r["trade_date"]): r 
+                    for r in self.data_cache["daily"]
+                }
+                
+                active_count = 0
+                for db_row in self.data_cache["daily_basic"]:
+                    d_str = db_row["trade_date"].isoformat() if isinstance(db_row["trade_date"], date) else db_row["trade_date"]
+                    d_date = date.fromisoformat(d_str)
+                    
+                    # 检查是否在统计的时间范围内
+                    if halfyear_start <= d_date <= trade_date:
+                        d_row = daily_map.get(d_str)
+                        if not d_row:
+                            continue
+                            
+                        # 获取判断条件所需的字段
+                        amount = d_row.get("amount")
+                        tr = db_row.get("turnover_rate")
+                        total_mv = db_row.get("total_mv")
+                        circ_mv = db_row.get("circ_mv")
+                        
+                        # 活跃逻辑：成交额>10亿 且 换手率>=10% 且 市值在50~200亿之间
+                        if (amount is not None and float(amount) > 100000 and 
+                            tr is not None and float(tr) >= 10.0 and 
+                            ((total_mv is not None and 500000 <= float(total_mv) <= 2000000) or 
+                             (circ_mv is not None and 500000 <= float(circ_mv) <= 2000000))):
+                            active_count += 1
+                
+                # 统计 zq_data_hsl_choice
+                hsl_count = 0
+                if "hsl_choice" in self.data_cache:
+                    for r in self.data_cache["hsl_choice"]:
+                        d_str = r["trade_date"].isoformat() if isinstance(r["trade_date"], date) else r["trade_date"]
+                        d_date = date.fromisoformat(d_str)
+                        if halfyear_start <= d_date <= trade_date:
+                            hsl_count += 1
+                else:
+                    # 降级查询
+                    hsl_sql = text("SELECT COUNT(*) FROM `zq_data_hsl_choice` WHERE ts_code = :ts_code AND trade_date >= :start_date AND trade_date <= :end_date")
+                    hsl_result = db.execute(hsl_sql, {"ts_code": code, "start_date": halfyear_start, "end_date": trade_date})
+                    hsl_count = hsl_result.scalar() or 0
+                    
+                return {
+                    "halfyear_active_times": active_count,
+                    "halfyear_hsl_times": hsl_count,
+                }
+
+            # --- 以下是原有 SQL 查询逻辑 (作为降级方案) ---
             # 获取表名
             daily_table = get_daily_table_name(code)
             daily_basic_table = get_daily_basic_table_name(code)
@@ -312,13 +390,37 @@ class HyperActivityCalculator(BaseFactorCalculator):
             row = result.fetchone()
 
             if row is None:
-                count = 0
+                active_count = 0
             else:
-                count = int(row[0]) if row[0] is not None else 0
+                active_count = int(row[0]) if row[0] is not None else 0
+
+            # 从 zq_data_hsl_choice 表统计半年内的记录数
+            hsl_sql = text("""
+                SELECT COUNT(*) as count
+                FROM `zq_data_hsl_choice`
+                WHERE ts_code = :ts_code
+                    AND trade_date >= :start_date
+                    AND trade_date <= :end_date
+            """)
+
+            hsl_result = db.execute(
+                hsl_sql,
+                {
+                    "ts_code": code,
+                    "start_date": halfyear_start,
+                    "end_date": trade_date,
+                }
+            )
+            hsl_row = hsl_result.fetchone()
+
+            if hsl_row is None:
+                hsl_count = 0
+            else:
+                hsl_count = int(hsl_row[0]) if hsl_row[0] is not None else 0
 
             return {
-                "halfyear_active_times": count,
-                "halfyear_hsl_times": count,
+                "halfyear_active_times": active_count,
+                "halfyear_hsl_times": hsl_count,
             }
 
         except Exception as e:
@@ -339,6 +441,36 @@ class HyperActivityCalculator(BaseFactorCalculator):
         # 组合因子计算器当前不需要特殊配置
         return True, ""
 
+    def get_output_columns(self) -> dict[str, Any]:
+        """获取超活跃组合因子的子列定义"""
+        return {
+            # 换手率因子 (Double)
+            "ma5_tr": Double,
+            "ma10_tr": Double,
+            "ma20_tr": Double,
+            "ma30_tr": Double,
+            "ma60_tr": Double,
+            "ma90_tr": Double,
+            "theday_turnover_volume": Double,
+            "total5_turnover_volume": Double,
+            "total10_turnover_volume": Double,
+            "total20_turnover_volume": Double,
+            "total30_turnover_volume": Double,
+            "total60_turnover_volume": Double,
+            "total90_turnover_volume": Double,
+            # 小十字因子 (Integer)
+            "theday_xcross": Integer,
+            "total5_xcross": Integer,
+            "total10_xcross": Integer,
+            "total20_xcross": Integer,
+            "total30_xcross": Integer,
+            "total60_xcross": Integer,
+            "total90_xcross": Integer,
+            # 半年统计因子 (Integer)
+            "halfyear_active_times": Integer,
+            "halfyear_hsl_times": Integer,
+        }
+
     def get_required_data_tables(self) -> list[str]:
         """
         获取所需的数据表列表
@@ -349,6 +481,7 @@ class HyperActivityCalculator(BaseFactorCalculator):
         return [
             "zq_data_tustock_daily_*",  # 日线数据
             "zq_data_tustock_daily_basic_*",  # 每日指标数据
+            "zq_data_hsl_choice",  # 精选数据
         ]
 
 

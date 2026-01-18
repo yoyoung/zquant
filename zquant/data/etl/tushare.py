@@ -143,8 +143,9 @@ class TushareClient:
         params = {"exchange": exchange, "list_status": list_status}
 
         try:
-            # 不指定 fields 参数，返回所有字段
-            df = self.pro.stock_basic(exchange=exchange, list_status=list_status)
+            # 明确指定所有字段，确保列名一致性，特别是 exchange 字段
+            fields = "ts_code,symbol,name,area,industry,fullname,enname,cnspell,market,exchange,curr_type,list_status,list_date,delist_date,is_hs"
+            df = self.pro.stock_basic(exchange=exchange, list_status=list_status, fields=fields)
             self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:
@@ -384,6 +385,64 @@ class TushareClient:
                 self._log_api_call(api_name, params, start_time, df=None)
                 return pd.DataFrame()
             
+            self._log_api_call(api_name, params, start_time, df=df)
+            return df
+        except Exception as e:
+            self._log_api_call(api_name, params, start_time, error=e)
+            raise
+
+    def get_all_stk_factor_by_date(self, trade_date: str) -> pd.DataFrame:
+        """
+        按日期批量获取所有股票的技术因子数据
+
+        Args:
+            trade_date: 交易日期，格式：YYYYMMDD
+
+        Returns:
+            包含所有股票因子数据的 DataFrame，包含 ts_code 列
+        """
+        api_name = "stk_factor"
+        start_time = time.time()
+        params = {"trade_date": trade_date}
+
+        try:
+            # Tushare stk_factor 接口支持只传 trade_date 来获取全市场数据
+            df = self.pro.stk_factor(trade_date=trade_date)
+            
+            # 处理 None 返回值
+            if df is None:
+                self._log_api_call(api_name, params, start_time, df=None)
+                return pd.DataFrame()
+                
+            self._log_api_call(api_name, params, start_time, df=df)
+            return df
+        except Exception as e:
+            self._log_api_call(api_name, params, start_time, error=e)
+            raise
+
+    def get_all_stk_factor_pro_by_date(self, trade_date: str) -> pd.DataFrame:
+        """
+        按日期批量获取所有股票的技术因子（专业版）数据
+
+        Args:
+            trade_date: 交易日期，格式：YYYYMMDD
+
+        Returns:
+            包含所有股票专业版因子数据的 DataFrame，包含 ts_code 列
+        """
+        api_name = "stk_factor_pro"
+        start_time = time.time()
+        params = {"trade_date": trade_date}
+
+        try:
+            # Tushare stk_factor_pro 接口支持只传 trade_date 来获取全市场数据
+            df = self.pro.stk_factor_pro(trade_date=trade_date)
+            
+            # 处理 None 返回值
+            if df is None:
+                self._log_api_call(api_name, params, start_time, df=None)
+                return pd.DataFrame()
+                
             self._log_api_call(api_name, params, start_time, df=df)
             return df
         except Exception as e:

@@ -99,7 +99,7 @@ class DataProcessor:
 
     @staticmethod
     def get_daily_data_records(
-        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None
+        db: Session, ts_code: str | list[str] | None = None, start_date: date | None = None, end_date: date | None = None, limit: int | None = None
     ) -> list[dict]:
         """
         获取日线数据记录列表

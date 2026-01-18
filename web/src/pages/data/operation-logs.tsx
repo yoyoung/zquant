@@ -22,7 +22,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, Button, Tag, message, Modal } from 'antd';
-import { ProForm, ProFormText, ProFormSelect, ProFormDatePicker } from '@ant-design/pro-components';
+import { ProForm, ProFormText, ProFormDatePicker } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import type { ProFormInstance } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -298,27 +299,27 @@ const OperationLogs: React.FC = () => {
           placeholder="请输入数据表名，支持模糊查询"
           width="sm"
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="operation_type"
           label="操作类型"
           options={[
-            { label: '全部', value: '' },
             { label: '插入', value: 'insert' },
             { label: '更新', value: 'update' },
             { label: '删除', value: 'delete' },
             { label: '同步', value: 'sync' },
           ]}
+          allValue=""
           width="sm"
         />
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="operation_result"
           label="操作结果"
           options={[
-            { label: '全部', value: '' },
             { label: '成功', value: 'success' },
             { label: '失败', value: 'failed' },
             { label: '部分成功', value: 'partial_success' },
           ]}
+          allValue=""
           width="sm"
         />
         <ProFormDatePicker

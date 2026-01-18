@@ -30,6 +30,7 @@ from typing import Optional
 from loguru import logger
 from sqlalchemy.orm import Session
 
+from zquant.config import settings
 from zquant.models.data import Tustock
 from zquant.utils.cache import get_cache
 
@@ -73,7 +74,13 @@ class StockRepository:
 
         # 查数据库
         try:
-            stock = self.db.query(Tustock).filter(Tustock.symbol == symbol).first()
+            query = self.db.query(Tustock).filter(Tustock.symbol == symbol)
+            
+            # 全局交易所过滤
+            if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                
+            stock = query.first()
             if stock:
                 ts_code = stock.ts_code
                 # 更新缓存
@@ -114,11 +121,13 @@ class StockRepository:
         # 批量查询数据库
         if symbols_to_query:
             try:
-                stocks = (
-                    self.db.query(Tustock)
-                    .filter(Tustock.symbol.in_(symbols_to_query))
-                    .all()
-                )
+                query = self.db.query(Tustock).filter(Tustock.symbol.in_(symbols_to_query))
+                
+                # 全局交易所过滤
+                if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                    query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    
+                stocks = query.all()
                 for stock in stocks:
                     if stock.symbol:
                         result[stock.symbol] = stock.ts_code
@@ -151,7 +160,13 @@ class StockRepository:
                 pass
 
         try:
-            stock = self.db.query(Tustock).filter(Tustock.ts_code == ts_code).first()
+            query = self.db.query(Tustock).filter(Tustock.ts_code == ts_code)
+            
+            # 全局交易所过滤
+            if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                
+            stock = query.first()
             if stock:
                 result = {
                     "ts_code": stock.ts_code,
@@ -188,7 +203,8 @@ class StockRepository:
     def get_stock_list(
         self,
         exchange: Optional[str] = None,
-        symbol: Optional[str] = None,
+        symbol: Optional[str | list[str]] = None,
+        ts_code: Optional[str | list[str]] = None,
         name: Optional[str] = None,
     ) -> list[dict]:
         """
@@ -196,7 +212,8 @@ class StockRepository:
 
         Args:
             exchange: 交易所代码
-            symbol: 股票代码
+            symbol: 股票代码，可以是单个字符串或字符串列表
+            ts_code: TS代码，可以是单个字符串或字符串列表
             name: 股票名称（模糊查询）
 
         Returns:
@@ -207,9 +224,25 @@ class StockRepository:
 
             if exchange:
                 query = query.filter(Tustock.exchange == exchange)
+            elif hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                # 如果没有显式指定交易所，则应用默认配置
+                query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
 
             if symbol:
-                query = query.filter(Tustock.symbol == symbol)
+                if isinstance(symbol, list):
+                    # 多个股票代码，使用 IN 查询
+                    query = query.filter(Tustock.symbol.in_(symbol))
+                else:
+                    # 单个股票代码，精确匹配
+                    query = query.filter(Tustock.symbol == symbol)
+
+            if ts_code:
+                if isinstance(ts_code, list):
+                    # 多个TS代码，使用 IN 查询
+                    query = query.filter(Tustock.ts_code.in_(ts_code))
+                else:
+                    # 单个TS代码，精确匹配
+                    query = query.filter(Tustock.ts_code == ts_code)
 
             if name:
                 query = query.filter(Tustock.name.like(f"%{name}%"))

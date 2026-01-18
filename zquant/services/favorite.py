@@ -56,7 +56,14 @@ class FavoriteService:
             ValidationError: 股票代码不存在或已存在
         """
         # 验证股票代码是否存在
-        stock = db.query(Tustock).filter(Tustock.symbol == favorite_data.code, Tustock.delist_date.is_(None)).first()
+        from zquant.config import settings
+        query = db.query(Tustock).filter(Tustock.symbol == favorite_data.code, Tustock.delist_date.is_(None))
+        
+        # 全局交易所过滤
+        if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+            query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+            
+        stock = query.first()
         if not stock:
             raise ValidationError(f"股票代码 {favorite_data.code} 不存在")
 

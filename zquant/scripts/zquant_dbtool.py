@@ -8,6 +8,11 @@ import datetime
 from pathlib import Path
 import sys
 from typing import Any
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
+import time
+import random
 
 from loguru import logger
 
@@ -24,7 +29,20 @@ from sqlalchemy import text
 
 from zquant.config import settings
 from zquant.database import SessionLocal, engine
-from zquant.models.data import DataOperationLog
+from zquant.models.data import (
+    DataOperationLog,
+    Tustock,
+    create_tustock_daily_class,
+    create_tustock_daily_basic_class,
+    create_tustock_factor_class,
+    create_tustock_stkfactorpro_class,
+    create_spacex_factor_class,
+    get_daily_table_name,
+    get_daily_basic_table_name,
+    get_factor_table_name,
+    get_stkfactorpro_table_name,
+    get_spacex_factor_table_name,
+)
 
 class ZQuantDBTool:
     """数据库操作工具类"""
@@ -190,7 +208,7 @@ class ZQuantDBTool:
                 error_message = f"表 {table_name} 不存在"
                 operation_result = "FAILED"
                 logger.warning(error_message)
-                print(f"⚠️  {error_message}")
+                print(f"WARN: {error_message}")
                 return {"success": False, "message": error_message, "delete_count": 0}
 
             # 验证日期格式
@@ -201,7 +219,7 @@ class ZQuantDBTool:
                 error_message = "日期格式错误，请使用 YYYY-MM-DD 格式"
                 operation_result = "FAILED"
                 logger.error(error_message)
-                print(f"✗ {error_message}")
+                print(f"ERROR: {error_message}")
                 return {"success": False, "message": error_message, "delete_count": 0}
 
             # 检查表是否有日期字段
@@ -222,7 +240,7 @@ class ZQuantDBTool:
                 error_message = f"表 {table_name} 中未找到日期字段"
                 operation_result = "FAILED"
                 logger.error(error_message)
-                print(f"✗ {error_message}")
+                print(f"ERROR: {error_message}")
                 return {"success": False, "message": error_message, "delete_count": 0}
 
             # 获取删除前的记录数
@@ -231,7 +249,7 @@ class ZQuantDBTool:
             records_to_delete = count_result[0][0] if count_result else 0
 
             if records_to_delete == 0:
-                print(f"✓ 表 {table_name} 在 {start_date} 到 {end_date} 期间没有数据需要删除")
+                print(f"OK: 表 {table_name} 在 {start_date} 到 {end_date} 期间没有数据需要删除")
                 return {"success": True, "message": f"表 {table_name} 在指定时间段内没有数据", "delete_count": 0}
 
             # 执行删除操作
@@ -252,7 +270,7 @@ class ZQuantDBTool:
             )
 
             print(
-                f"✓ 成功删除表 {table_name} 中 {start_date} 到 {end_date} 期间的数据，共 {records_to_delete:,} 条记录"
+                f"OK: 成功删除表 {table_name} 中 {start_date} 到 {end_date} 期间的数据，共 {records_to_delete:,} 条记录"
             )
             return {
                 "success": True,
@@ -265,7 +283,7 @@ class ZQuantDBTool:
             error_message = f"删除表 {table_name} 数据失败: {e}"
             operation_result = "FAILED"
             logger.error(error_message)
-            print(f"✗ {error_message}")
+            print(f"ERROR: {error_message}")
 
             # 记录操作日志
             self._log_operation(
@@ -316,7 +334,7 @@ class ZQuantDBTool:
         print("=" * 100)
 
         # 统一表格显示所有表信息
-        print("\n📊 表信息汇总:")
+        print("\n表信息汇总:")
         print("-" * 100)
         print(f"{'序号':<4} {'表名/分表模式':<50} {'类型':<15} {'数量':<15} {'备注':<15}")
         print("-" * 100)
@@ -336,7 +354,7 @@ class ZQuantDBTool:
         total_groups = len(table_groups)
         total_sub_tables = sum(len(sub_tables) for sub_tables in table_groups.values())
 
-        print("📈 汇总统计:")
+        print("汇总统计:")
         print(f"   - 总表数: {total_tables}")
         print(f"   - 独立表: {total_standalone} 个")
         print(f"   - 分表组: {total_groups} 组")
@@ -354,7 +372,7 @@ class ZQuantDBTool:
         if total_items == 0:
             return
 
-        print(f"\n💡 提示: 输入序号 (1-{total_items}) 查看表详情，输入 'q' 退出")
+        print(f"\nTIP: 输入序号 (1-{total_items}) 查看表详情，输入 'q' 退出")
 
         while True:
             try:
@@ -366,7 +384,7 @@ class ZQuantDBTool:
 
                 choice_num = int(choice)
                 if choice_num < 1 or choice_num > total_items:
-                    print(f"❌ 无效的序号，请输入 1-{total_items} 之间的数字")
+                    print(f"ERROR: 无效的序号，请输入 1-{total_items} 之间的数字")
                     continue
 
                 # 根据序号获取对应的表信息
@@ -391,18 +409,18 @@ class ZQuantDBTool:
                     break
 
             except ValueError:
-                print("❌ 请输入有效的数字")
+                print("ERROR: 请输入有效的数字")
             except KeyboardInterrupt:
                 print("\n\n退出查看表详情")
                 break
             except Exception as e:
-                print(f"❌ 发生错误: {e}")
+                print(f"ERROR: 发生错误: {e}")
 
     def _show_single_table_details(self, table_name):
         """
         显示单个表的详细信息
         """
-        print(f"\n📋 表详情: {table_name}")
+        print(f"\n表详情: {table_name}")
         print("=" * 80)
 
         try:
@@ -425,13 +443,13 @@ class ZQuantDBTool:
             structure_sql = f"DESCRIBE `{table_name}`"
             structure_result = self._execute_sql_fetch(structure_sql)
 
-            print("📊 基本信息:")
+            print("基本信息:")
             print(f"   - 表名: {table_name}")
             print(f"   - 记录数: {record_count:,}")
             print(f"   - 表大小: {table_size_mb:.2f} MB")
             print(f"   - 字段数: {len(structure_result)}")
 
-            print("\n📋 表结构:")
+            print("\n表结构:")
             print("-" * 80)
             print(f"{'字段名':<20} {'类型':<20} {'是否为空':<10} {'键':<10} {'默认值':<15}")
             print("-" * 80)
@@ -445,16 +463,16 @@ class ZQuantDBTool:
                 print(f"{field_name:<20} {field_type:<20} {is_null:<10} {key:<10} {default:<15}")
 
         except Exception as e:
-            print(f"❌ 获取表详情失败: {e}")
+            print(f"ERROR: 获取表详情失败: {e}")
 
     def _show_partition_table_details(self, base_name, sub_tables):
         """
         显示分表组的详细信息
         """
-        print(f"\n📊 分表组详情: {base_name}")
+        print(f"\n分表组详情: {base_name}")
         print("=" * 80)
 
-        print("📋 基本信息:")
+        print("基本信息:")
         print(f"   - 基础表名: {base_name}")
         print(f"   - 分表数量: {len(sub_tables)}")
         print(f"   - 分表模式: {base_name}_{{code}}")
@@ -464,7 +482,7 @@ class ZQuantDBTool:
         total_size = 0
         sample_tables = []
 
-        print("\n📊 分表统计 (显示前10个作为示例):")
+        print("\n分表统计 (显示前10个作为示例):")
         print("-" * 80)
         print(f"{'序号':<4} {'表名':<40} {'记录数':<12} {'大小(MB)':<12}")
         print("-" * 80)
@@ -876,17 +894,21 @@ class ZQuantDBTool:
         # 逐个删除子表
         success_count = 0
         failed_count = 0
+        total_to_drop = len(sub_tables)
 
-        for sub_table_name, _ in sub_tables:
-            print(f"\n正在删除: {sub_table_name}")
+        for i, (sub_table_name, _) in enumerate(sub_tables, 1):
+            # 打印删除进度
+            print(f"\r  删除进度: {i}/{total_to_drop} - 正在删除: {sub_table_name}", end="", flush=True)
             result = self.drop_table(sub_table_name)
 
             if result["success"]:
-                print(f"✅ {result['message']}")
                 success_count += 1
             else:
-                print(f"❌ {result['message']}")
+                print(f"\n  ❌ {result['message']}")
                 failed_count += 1
+        
+        # 换行
+        print()
 
         print("\n📊 删除结果:")
         print(f"  成功: {success_count} 个表")
@@ -933,6 +955,539 @@ class ZQuantDBTool:
                 )
 
         print("\n" + "=" * 80)
+
+    def _get_spacex_factor_columns(self) -> dict[str, Any]:
+        """
+        从 zq_quant_factor_definitions 表获取所有启用的因子列定义
+        如果是组合因子，则展开其所有的子因子列
+        """
+        try:
+            from sqlalchemy import text, inspect as sql_inspect, Double
+            from zquant.factor.calculators.factory import create_calculator
+            
+            # 检查表是否存在
+            inspector = sql_inspect(engine)
+            if "zq_quant_factor_definitions" not in inspector.get_table_names():
+                return {}
+            
+            # 获取所有启用的因子定义
+            query = text("SELECT factor_name, column_name, factor_type FROM zq_quant_factor_definitions WHERE enabled = 1")
+            result = self.db.execute(query)
+            
+            columns = {}
+            for row in result.fetchall():
+                factor_name, column_name, factor_type = row
+                
+                if factor_type == "组合因子":
+                    # 对于组合因子，通过计算器获取子列清单
+                    try:
+                        # 尝试创建一个临时的计算器实例来获取其输出列定义
+                        calculator = create_calculator(factor_name)
+                        sub_columns = calculator.get_output_columns()
+                        if sub_columns:
+                            columns.update(sub_columns)
+                        else:
+                            # 降级处理：如果没有定义子列，使用基础列名
+                            columns[column_name] = Double
+                    except Exception as calc_err:
+                        logger.warning(f"获取组合因子 {factor_name} 子列清单失败: {calc_err}")
+                        columns[column_name] = Double
+                else:
+                    # 普通单因子
+                    if column_name:
+                        columns[column_name] = Double
+            
+            return columns
+        except Exception as e:
+            logger.warning(f"获取因子列定义失败: {e}")
+            return {}
+
+    def _create_single_table_worker(
+        self, 
+        table_name: str, 
+        template_table: str, 
+        progress_lock: threading.Lock,
+        completed_count: list,
+        total_count: int,
+        failed_tables: list
+    ) -> tuple[bool, str]:
+        """
+        单表创建工作函数（用于线程池执行，带死锁重试机制）
+        
+        Args:
+            table_name: 要创建的表名
+            template_table: 模板表名
+            progress_lock: 线程锁，用于保护进度计数器
+            completed_count: 已完成计数器（列表形式以便在闭包中修改）
+            total_count: 总表数
+            failed_tables: 失败表名列表（线程安全追加）
+        
+        Returns:
+            (success: bool, message: str)
+        """
+        max_retries = 3  # 最大重试次数
+        retry_delay_base = 0.1  # 基础重试延迟（秒）
+        
+        for attempt in range(max_retries):
+            raw_conn = None
+            try:
+                # 如果不是第一次尝试，添加随机延迟避免所有线程同时重试
+                if attempt > 0:
+                    delay = retry_delay_base * (2 ** attempt) + random.uniform(0, 0.1)
+                    time.sleep(delay)
+                
+                # 获取独立连接
+                raw_conn = engine.raw_connection()
+                raw_conn.autocommit = True
+                cursor = raw_conn.cursor()
+                
+                # 设置会话级别的优化参数
+                try:
+                    cursor.execute("SET SESSION sql_log_bin = 0")
+                    cursor.execute("SET SESSION unique_checks = 0")
+                    cursor.execute("SET SESSION foreign_key_checks = 0")
+                    # 尝试设置会话级别的刷新参数（如果支持）
+                    try:
+                        cursor.execute("SET SESSION innodb_flush_log_at_trx_commit = 0")
+                    except:
+                        pass  # 某些 MySQL 版本可能不支持会话级别设置
+                except Exception as env_err:
+                    logger.debug(f"表 {table_name} 环境设置部分失败: {env_err}")
+                
+                # 执行 CREATE TABLE ... LIKE
+                cursor.execute(f"CREATE TABLE `{table_name}` LIKE `{template_table}`")
+                
+                # 更新进度（线程安全）
+                with progress_lock:
+                    completed_count[0] += 1
+                    current = completed_count[0]
+                    now = datetime.datetime.now().strftime("%H:%M:%S")
+                    percentage = (current / total_count * 100) if total_count > 0 else 0
+                    retry_info = f" (重试 {attempt})" if attempt > 0 else ""
+                    print(f"  [{now}] 克隆进度: {current}/{total_count} ({percentage:.1f}%) - 完成: {table_name}{retry_info}", flush=True)
+                
+                cursor.close()
+                return (True, f"成功创建 {table_name}")
+                
+            except Exception as e:
+                error_code = None
+                # 检查是否是死锁错误（MySQL 错误代码 1213）
+                if hasattr(e, 'args') and len(e.args) > 0:
+                    if isinstance(e.args[0], int) and e.args[0] == 1213:
+                        error_code = 1213
+                    elif isinstance(e.args[0], tuple) and len(e.args[0]) > 0 and e.args[0][0] == 1213:
+                        error_code = 1213
+                    elif '1213' in str(e) or 'Deadlock' in str(e):
+                        error_code = 1213
+                
+                # 如果是死锁且还有重试机会，则重试
+                if error_code == 1213 and attempt < max_retries - 1:
+                    if raw_conn:
+                        try:
+                            cursor.close()
+                            raw_conn.close()
+                        except:
+                            pass
+                    logger.debug(f"表 {table_name} 遇到死锁，准备重试 ({attempt + 1}/{max_retries})")
+                    continue  # 继续下一次重试
+                
+                # 非死锁错误或重试次数用尽，记录失败
+                error_msg = f"创建表 {table_name} 失败: {e}"
+                logger.error(error_msg)
+                
+                # 记录失败表（线程安全）
+                with progress_lock:
+                    failed_tables.append(table_name)
+                    completed_count[0] += 1
+                    current = completed_count[0]
+                    now = datetime.datetime.now().strftime("%H:%M:%S")
+                    print(f"  [{now}] ❌ 错误: {table_name} - {str(e)[:100]}", flush=True)
+                
+                return (False, error_msg)
+            finally:
+                if raw_conn:
+                    try:
+                        raw_conn.close()
+                    except:
+                        pass
+        
+        # 所有重试都失败
+        return (False, f"创建表 {table_name} 失败：重试 {max_retries} 次后仍失败")
+
+    def check_and_manage_partitioned_tables(self):
+        """
+        检查、创建和管理分表
+        1. 检查缺失的分表并创建
+        2. 清理不匹配交易所的分表
+        3. 检查分表结构一致性
+        """
+        print("\n" + "=" * 60)
+        print("分表管理 (检查/创建/清理/结构校验)")
+        print("=" * 60)
+
+        # 1. 获取配置的交易所
+        exchanges = settings.DEFAULT_EXCHANGES
+        print(f"当前配置的交易所: {', '.join(exchanges)}")
+
+        # 2. 从 stockbasic 获取指定交易所的所有股票代码
+        try:
+            stocks = self.db.query(Tustock.ts_code).filter(Tustock.exchange.in_(exchanges)).all()
+            ts_codes = [s.ts_code for s in stocks]
+            if not ts_codes:
+                print("❌ 未在 zq_data_tustock_stockbasic 中找到匹配交易所的股票代码，请先初始化数据")
+                return
+            print(f"找到匹配交易所的股票总数: {len(ts_codes)}")
+        except Exception as e:
+            print(f"❌ 获取股票代码失败: {e}")
+            return
+
+        # 定义需要检查的分表类型及其配置
+        all_partition_configs = [
+            {
+                "type": "daily",
+                "name": "日线数据",
+                "get_name_fn": get_daily_table_name,
+                "create_class_fn": create_tustock_daily_class,
+                "prefix": "zq_data_tustock_daily_"
+            },
+            {
+                "type": "daily_basic",
+                "name": "每日指标",
+                "get_name_fn": get_daily_basic_table_name,
+                "create_class_fn": create_tustock_daily_basic_class,
+                "prefix": "zq_data_tustock_daily_basic_"
+            },
+            {
+                "type": "factor",
+                "name": "因子数据",
+                "get_name_fn": get_factor_table_name,
+                "create_class_fn": create_tustock_factor_class,
+                "prefix": "zq_data_tustock_factor_"
+            },
+            {
+                "type": "stkfactorpro",
+                "name": "专业版因子",
+                "get_name_fn": get_stkfactorpro_table_name,
+                "create_class_fn": create_tustock_stkfactorpro_class,
+                "prefix": "zq_data_tustock_stkfactorpro_"
+            },
+            {
+                "type": "spacex_factor",
+                "name": "SpaceX因子",
+                "get_name_fn": get_spacex_factor_table_name,
+                "create_class_fn": create_spacex_factor_class,
+                "prefix": "zq_quant_factor_spacex_"
+            }
+        ]
+
+        # 根据当前工具的 table_prefix 过滤配置
+        partition_configs = [
+            cfg for cfg in all_partition_configs 
+            if cfg['prefix'].startswith(self.table_prefix)
+        ]
+
+        if not partition_configs:
+            print(f"提示: 当前前缀 [{self.table_prefix}] 下没有需要管理的分表配置")
+            return
+
+        inspector = sql_inspect(engine)
+        all_db_tables = inspector.get_table_names()
+
+        for config in partition_configs:
+            print(f"\n--- 正在检查 {config['name']} 分表 ({config['prefix']}) ---")
+            
+            # 获取额外的列定义（目前主要针对 SpaceX 因子）
+            extra_columns = {}
+            if config['type'] == 'spacex_factor':
+                extra_columns = self._get_spacex_factor_columns()
+                if extra_columns:
+                    print(f"  识别到 {len(extra_columns)} 个因子列: {', '.join(extra_columns.keys())}")
+
+            # A. 检查并创建缺失分表
+            expected_tables = {config['get_name_fn'](code): code for code in ts_codes}
+            
+            # 获取现有表，注意排除交叉前缀的情况（如 daily 包含 daily_basic）
+            existing_tables = [t for t in all_db_tables if t.startswith(config['prefix']) and t != config['prefix'][:-1]]
+            if config['type'] == 'daily':
+                # 特殊处理：检查 daily 时排除 daily_basic
+                existing_tables = [t for t in existing_tables if 'daily_basic' not in t]
+            
+            missing_tables = [t for t in expected_tables if t not in existing_tables]
+            if missing_tables:
+                print(f"INFO: 发现缺失分表: {len(missing_tables)} 个")
+                choice = input(f"是否创建这 {len(missing_tables)} 个缺失的 {config['name']} 分表? (y/N): ").strip().lower()
+                if choice == 'y':
+                    print(f"正在以模板模式快速创建分表...")
+                    created_count = 0
+                    total_to_create = len(missing_tables)
+                    
+                    # 确定或创建一个模板表
+                    template_table = None
+                    if existing_tables:
+                        template_table = existing_tables[0]
+                    else:
+                        # 如果一个表都没有，先创建一个作为后续的模板
+                        first_table_name = missing_tables[0]
+                        ts_code = expected_tables[first_table_name]
+                        print(f"\n  [1/{total_to_create}] 正在初始化首个模板表: {first_table_name}")
+                        try:
+                            if config['type'] == 'spacex_factor':
+                                model_class = config['create_class_fn'](ts_code, extra_columns=extra_columns)
+                            else:
+                                model_class = config['create_class_fn'](ts_code)
+                            model_class.__table__.create(engine, checkfirst=True)
+                            template_table = first_table_name
+                            created_count = 1
+                            missing_tables = missing_tables[1:] # 移除已创建的第一个
+                        except Exception as e:
+                            print(f"  ❌ 初始化模板表失败: {e}")
+                            return
+
+                    # 使用 CREATE TABLE ... LIKE 批量克隆（并行模式）
+                    if template_table:
+                        # 获取并发数配置（默认 5，可通过环境变量控制）
+                        # 注意：并发数过高可能导致 MySQL 元数据锁死锁，建议 3-8 之间
+                        max_workers = int(os.getenv('TABLE_CREATE_WORKERS', '5'))
+                        # 限制最大并发数，避免过多连接和死锁
+                        max_workers = min(max_workers, 10)  # 降低最大并发数以减少死锁
+                        max_workers = max(max_workers, 1)
+                        
+                        print(f"  使用 {max_workers} 个线程并行创建分表（带死锁自动重试）...")
+                        
+                        # 线程安全的进度跟踪
+                        progress_lock = threading.Lock()
+                        completed_count = [created_count]  # 使用列表以便在闭包中修改
+                        failed_tables = []
+                        
+                        # 使用线程池并行创建
+                        start_time = datetime.datetime.now()
+                        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                            # 提交所有任务
+                            futures = {
+                                executor.submit(
+                                    self._create_single_table_worker,
+                                    table_name,
+                                    template_table,
+                                    progress_lock,
+                                    completed_count,
+                                    total_to_create,
+                                    failed_tables
+                                ): table_name
+                                for table_name in missing_tables
+                            }
+                            
+                            # 等待所有任务完成（可选：可以在这里添加实时进度监控）
+                            for future in as_completed(futures):
+                                table_name = futures[future]
+                                try:
+                                    success, message = future.result()
+                                    if not success:
+                                        logger.warning(f"表 {table_name} 创建失败: {message}")
+                                except Exception as e:
+                                    logger.error(f"表 {table_name} 执行异常: {e}")
+                                    with progress_lock:
+                                        failed_tables.append(table_name)
+                        
+                        end_time = datetime.datetime.now()
+                        duration = (end_time - start_time).total_seconds()
+                        created_count = completed_count[0] - len(failed_tables)
+                        
+                        # 输出总结
+                        print(f"\n{'='*60}")
+                        print(f"✅ 批量创建完成!")
+                        print(f"   - 总表数: {total_to_create}")
+                        print(f"   - 成功: {created_count} 个")
+                        print(f"   - 失败: {len(failed_tables)} 个")
+                        if len(failed_tables) > 0:
+                            print(f"   - 失败表: {', '.join(failed_tables[:10])}" + 
+                                  (f" ... 还有 {len(failed_tables) - 10} 个" if len(failed_tables) > 10 else ""))
+                        print(f"   - 总耗时: {duration:.2f} 秒")
+                        if created_count > 0:
+                            print(f"   - 平均速度: {created_count / duration:.2f} 表/秒")
+                        print(f"{'='*60}")
+                    
+                    if created_count > 0:
+                        print(f"\nOK: 成功创建 {created_count} 个分表")
+                        
+                        # 自动更新相关视图（检测到新增分表后）
+                        try:
+                            print(f"\n📊 检测到新增分表，开始更新相关视图...")
+                            from zquant.data.view_manager import (
+                                create_or_update_daily_view,
+                                create_or_update_daily_basic_view,
+                                create_or_update_factor_view,
+                                create_or_update_stkfactorpro_view,
+                                create_or_update_spacex_factor_view,
+                            )
+                            
+                            view_updated = False
+                            if config['type'] == 'daily':
+                                if create_or_update_daily_view(self.db):
+                                    print(f"  ✅ 已更新日线数据视图")
+                                    view_updated = True
+                            elif config['type'] == 'daily_basic':
+                                if create_or_update_daily_basic_view(self.db):
+                                    print(f"  ✅ 已更新每日指标数据视图")
+                                    view_updated = True
+                            elif config['type'] == 'factor':
+                                if create_or_update_factor_view(self.db):
+                                    print(f"  ✅ 已更新因子数据视图")
+                                    view_updated = True
+                            elif config['type'] == 'stkfactorpro':
+                                if create_or_update_stkfactorpro_view(self.db):
+                                    print(f"  ✅ 已更新专业版因子数据视图")
+                                    view_updated = True
+                            elif config['type'] == 'spacex_factor':
+                                if create_or_update_spacex_factor_view(self.db):
+                                    print(f"  ✅ 已更新自定义量化因子结果视图")
+                                    view_updated = True
+                            
+                            if not view_updated:
+                                print(f"  ⚠️  视图更新跳过（可能已是最新或无需更新）")
+                        except Exception as view_err:
+                            logger.warning(f"自动更新视图失败（不影响分表创建）: {view_err}")
+                            print(f"  ⚠️  视图更新失败: {view_err}")
+                else:
+                    print("跳过创建缺失分表")
+            else:
+                print("OK: 未发现缺失分表")
+
+            # B. 清理不匹配的分表
+            mismatched_tables = [t for t in existing_tables if t not in expected_tables]
+            if mismatched_tables:
+                print(f"INFO: 发现不匹配的分表 (代码不在配置的交易所中): {len(mismatched_tables)} 个")
+                # 列出前5个示例
+                print("示例: " + ", ".join(mismatched_tables[:5]) + ("..." if len(mismatched_tables) > 5 else ""))
+                
+                while True:
+                    choice = input(f"请输入操作 [y:清除 / N:跳过 / l:列出全部]: ").strip().lower()
+                    if choice == 'l':
+                        print("\n全部不匹配清单:")
+                        for idx, table_name in enumerate(mismatched_tables, 1):
+                            print(f"{idx:4d}. {table_name}")
+                        print(f"\n(共 {len(mismatched_tables)} 个)\n")
+                        continue
+                    elif choice == 'y':
+                        deleted_count = 0
+                        total_to_delete = len(mismatched_tables)
+                        for i, table_name in enumerate(mismatched_tables, 1):
+                            # 打印清除进度
+                            print(f"\r  清除进度: {i}/{total_to_delete} - 正在删除: {table_name}", end="", flush=True)
+                            try:
+                                self._execute_sql(f"DROP TABLE `{table_name}`")
+                                deleted_count += 1
+                            except Exception as e:
+                                print(f"\n  ERROR: 删除表 {table_name} 失败: {e}")
+                        print(f"\nOK: 成功清除 {deleted_count} 个不匹配分表")
+                        break
+                    else:
+                        print("跳过清理不匹配分表")
+                        break
+            else:
+                print("OK: 未发现不匹配的分表")
+
+            # C. 结构一致性检查
+            print(f"INFO: 正在检查 [{config['prefix']},{config['name']}] 分表结构一致性...")
+            if not existing_tables:
+                print("跳过结构检查 (无现有分表)")
+                continue
+
+            # 取第一个表作为基准
+            base_table = existing_tables[0]
+            try:
+                base_columns = {c['name']: str(c['type']) for c in inspector.get_columns(base_table)}
+                
+                inconsistent_tables = []
+                total_tables = len(existing_tables)
+                for i, table_name in enumerate(existing_tables, 1):
+                    # 打印进度
+                    if i % 100 == 0 or i == total_tables:
+                        print(f"\r  进度: {i}/{total_tables} - 正在检查: {table_name}", end="", flush=True)
+                    
+                    if i == 1:
+                        # 基准表跳过对比逻辑，仅用于占位进度
+                        continue
+                        
+                    current_columns = {c['name']: str(c['type']) for c in inspector.get_columns(table_name)}
+                    if current_columns != base_columns:
+                        # 记录不一致详情
+                        diff = []
+                        all_cols = set(base_columns.keys()) | set(current_columns.keys())
+                        for col in all_cols:
+                            if col not in base_columns:
+                                diff.append(f"多出字段: {col}")
+                            elif col not in current_columns:
+                                diff.append(f"缺失字段: {col}")
+                            elif base_columns[col] != current_columns[col]:
+                                diff.append(f"字段 {col} 类型不一致: 基准={base_columns[col]}, 当前={current_columns[col]}")
+                        inconsistent_tables.append((table_name, diff))
+                
+                # 检查完成后换行
+                print()
+
+                if inconsistent_tables:
+                    print(f"ERROR: 发现 {len(inconsistent_tables)} 个结构不一致的分表!")
+                    for table_name, diffs in inconsistent_tables[:10]: # 只显示前10个
+                        print(f"  - {table_name}:")
+                        for d in diffs:
+                            print(f"    - {d}")
+                    if len(inconsistent_tables) > 10:
+                        print(f"  ... 还有 {len(inconsistent_tables) - 10} 个不一致的表")
+                else:
+                    print(f"OK: 所有 {len(existing_tables)} 个 {config['name']} 分表结构一致")
+            except Exception as e:
+                print(f"ERROR: 结构检查过程出错: {e}")
+
+            # D. 同步因子列结构 (仅针对 SpaceX 因子)
+            if config['type'] == 'spacex_factor' and extra_columns:
+                print(f"INFO: 正在同步 [{config['name']}] 因子列结构...")
+                
+                tables_to_sync = []
+                for table_name in existing_tables:
+                    try:
+                        # 获取当前表的列
+                        current_cols = {c['name'] for c in inspector.get_columns(table_name)}
+                        # 检查缺少的因子列
+                        missing_factor_cols = [col for col in extra_columns.keys() if col not in current_cols]
+                        if missing_factor_cols:
+                            tables_to_sync.append((table_name, missing_factor_cols))
+                    except Exception as e:
+                        print(f"  ❌ 检查表 {table_name} 失败: {e}")
+
+                if tables_to_sync:
+                    print(f"INFO: 发现 {len(tables_to_sync)} 个分表缺少配置中的因子列")
+                    choice = input(f"是否同步这 {len(tables_to_sync)} 个分表的列结构? (y/N): ").strip().lower()
+                    if choice == 'y':
+                        sync_count = 0
+                        total_to_sync = len(tables_to_sync)
+                        for i, (table_name, missing_cols) in enumerate(tables_to_sync, 1):
+                            print(f"\r  同步进度: {i}/{total_to_sync} - 正在处理: {table_name}", end="", flush=True)
+                            try:
+                                for col in missing_cols:
+                                    # 获取 SQL 类型
+                                    col_type = extra_columns[col]
+                                    type_str = "DOUBLE"
+                                    if hasattr(col_type, '__visit_name__'):
+                                        if col_type.__visit_name__ == 'integer':
+                                            type_str = "INTEGER"
+                                        elif col_type.__visit_name__ == 'float' or col_type.__visit_name__ == 'double':
+                                            type_str = "DOUBLE"
+                                    
+                                    # 为分表添加缺少的列
+                                    alter_sql = f"ALTER TABLE `{table_name}` ADD COLUMN `{col}` {type_str} NULL COMMENT '因子: {col}'"
+                                    self._execute_sql(alter_sql)
+                                sync_count += 1
+                            except Exception as e:
+                                print(f"\n  ERROR: 同步表 {table_name} 失败: {e}")
+                        print(f"\nOK: 成功同步 {sync_count} 个分表的列结构")
+                    else:
+                        print("跳过列结构同步")
+                else:
+                    print("OK: 所有现有分表的因子列结构已是最新")
+
+        print("\n" + "=" * 60)
+        print("分表管理完成")
+        print("=" * 60)
 
     def _log_operation(
         self,
@@ -1054,10 +1609,11 @@ def main():
             print("2. 查看分表概况")
             print("3. 按时间段删除分表数据")
             print("4. 删除数据表")
-            print("5. 返回表类型选择")
+            print("5. 管理分表 (检查/创建/清理/结构校验)")
+            print("6. 返回表类型选择")
             print("-" * 60)
 
-            choice = input("请选择操作 (1-5): ").strip()
+            choice = input("请选择操作 (1-6): ").strip()
 
             if choice == "1":
                 print(f"\n正在列举{selected_type['prefix']}开头的表...")
@@ -1077,6 +1633,10 @@ def main():
                 tool.drop_table_interactive()
 
             elif choice == "5":
+                print("\n正在执行分表管理...")
+                tool.check_and_manage_partitioned_tables()
+
+            elif choice == "6":
                 break  # 返回表类型选择
 
             else:

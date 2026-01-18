@@ -44,6 +44,16 @@ class BaseFactorCalculator(ABC):
         """
         self.model_code = model_code
         self.config = config or {}
+        self.data_cache: dict[str, Any] = {}
+
+    def set_data_cache(self, data_cache: dict[str, Any]):
+        """
+        设置数据缓存，用于加速批量计算
+        
+        Args:
+            data_cache: 数据缓存字典，键通常为表名或数据标识，值为对应的 DataFrame 或 List
+        """
+        self.data_cache = data_cache
 
     @abstractmethod
     def calculate(self, db: Session, code: str, trade_date: date) -> Union[float, dict[str, Any], None]:
@@ -69,6 +79,18 @@ class BaseFactorCalculator(ABC):
             (是否有效, 错误信息)
         """
         pass
+
+    def get_output_columns(self) -> dict[str, Any]:
+        """
+        获取因子输出的列定义（用于分表初始化）
+        
+        对于单因子，通常返回空字典，由外部根据 factor_definition.column_name 处理。
+        对于组合因子，应返回字典，键为列名，值为 SQLAlchemy 类型（如 Float, Integer）。
+
+        Returns:
+            列名 -> 类型 映射字典
+        """
+        return {}
 
     def get_required_data_tables(self) -> list[str]:
         """

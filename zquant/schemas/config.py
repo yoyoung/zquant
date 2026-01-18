@@ -105,3 +105,11 @@ class TushareTokenTestResponse(BaseModel):
     success: bool = Field(..., description="测试是否成功")
     message: str = Field(..., description="测试结果消息")
     data_count: int | None = Field(None, description="测试接口返回的数据条数（如果成功）")
+
+
+class SystemSettingsResponse(BaseModel):
+    """系统设置响应"""
+
+    default_exchanges: list[str] = Field(..., description="默认交易所列表")
+    app_name: str = Field(..., description="应用名称")
+    app_version: str = Field(..., description="应用版本")

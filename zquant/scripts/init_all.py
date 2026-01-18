@@ -25,7 +25,8 @@
 整合所有初始化功能，确保一次执行即可完成所有初始化操作
 
 使用方法：
-    python zquant/scripts/init_all.py                    # 执行所有初始化步骤
+    python zquant/scripts/init_all.py                    # 默认执行核心初始化（Mini 模式）
+    python zquant/scripts/init_all.py --full            # 执行完整初始化（包含非核心步骤）
     python zquant/scripts/init_all.py --skip-view        # 跳过视图初始化
     python zquant/scripts/init_all.py --skip-factor     # 跳过因子初始化
     python zquant/scripts/init_all.py --skip-strategies # 跳过策略模板初始化
@@ -49,21 +50,16 @@ from loguru import logger
 from zquant.scripts.init_db import init_database
 from zquant.scripts.init_scheduler import create_tables as create_scheduler_tables, create_zquant_tasks
 from zquant.scripts.init_view import (
-    create_daily_view_procedure,
     create_daily_view,
-    create_daily_basic_view_procedure,
     create_daily_basic_view,
-    create_factor_view_procedure,
     create_factor_view,
-    create_stkfactorpro_view_procedure,
     create_stkfactorpro_view,
-    create_spacex_factor_view_procedure,
     create_spacex_factor_view,
 )
 from zquant.scripts.init_factor import (
     create_tables as create_factor_tables,
     create_turnover_rate_factor,
-    create_example_config,
+    create_hyper_activity_factor,
 )
 from zquant.scripts.init_stock_filter import init_stock_filter_strategies
 from zquant.scripts.init_strategies import init_strategies
@@ -108,9 +104,9 @@ def init_factor_step(force: bool = False) -> bool:
             logger.error("✗ 创建换手率因子失败")
             return False
         
-        # 创建示例配置
-        if not create_example_config(force=force):
-            logger.warning("⚠ 创建示例配置失败（不影响整体流程）")
+        # 创建超活跃组合因子
+        if not create_hyper_activity_factor(force=force):
+            logger.warning("⚠ 创建超活跃组合因子失败（不影响整体流程）")
         
         logger.info("✓ 因子系统初始化完成")
         return True
@@ -141,11 +137,11 @@ def init_stock_filter_step(force: bool = False) -> bool:
         return False
 
 
-def init_scheduler_step(force: bool = False) -> bool:
+def init_scheduler_step(force: bool = False, mini: bool = False) -> bool:
     """步骤4: 初始化定时任务系统"""
     logger.info("")
     logger.info("=" * 60)
-    logger.info("步骤 4/6: 定时任务系统初始化")
+    logger.info(f"步骤 4/6: 定时任务系统初始化{' (Mini 模式)' if mini else ''}")
     logger.info("=" * 60)
     try:
         # 创建定时任务表
@@ -154,7 +150,7 @@ def init_scheduler_step(force: bool = False) -> bool:
             return False
         
         # 创建ZQuant任务
-        if not create_zquant_tasks(force=force):
+        if not create_zquant_tasks(force=force, mini=mini):
             logger.error("✗ 创建ZQuant任务失败")
             return False
         
@@ -167,57 +163,31 @@ def init_scheduler_step(force: bool = False) -> bool:
         return False
 
 
-def init_view_step(force: bool = False) -> bool:
+def init_view_step(force: bool = False, mini: bool = False) -> bool:
     """步骤5: 初始化数据视图"""
     logger.info("")
     logger.info("=" * 60)
-    logger.info("步骤 5/6: 数据视图初始化")
+    logger.info(f"步骤 5/6: 数据视图初始化{' (Mini 模式)' if mini else ''}")
     logger.info("=" * 60)
     db = SessionLocal()
     try:
-        # 创建日线数据视图存储过程
-        if not create_daily_view_procedure(db):
-            logger.error("✗ 创建日线数据视图存储过程失败")
-            return False
-        
-        # 创建每日指标数据视图存储过程
-        if not create_daily_basic_view_procedure(db):
-            logger.error("✗ 创建每日指标数据视图存储过程失败")
-            return False
-        
-        # 创建因子数据视图存储过程
-        if not create_factor_view_procedure(db):
-            logger.error("✗ 创建因子数据视图存储过程失败")
-            return False
-        
-        # 创建专业版因子数据视图存储过程
-        if not create_stkfactorpro_view_procedure(db):
-            logger.error("✗ 创建专业版因子数据视图存储过程失败")
-            return False
-        
-        # 创建自定义量化因子结果视图存储过程
-        if not create_spacex_factor_view_procedure(db):
-            logger.error("✗ 创建自定义量化因子结果视图存储过程失败")
-            return False
-        
-        # 调用存储过程创建日线数据视图
-        if not create_daily_view(db):
+        # 1. 调用视图创建函数
+        # 注意：这些函数在 init_view.py 中已经被优化为优先使用 Python 直接创建
+        if not create_daily_view(db, force=force):
             logger.warning("⚠ 创建日线数据视图失败（可能没有数据表）")
         
-        # 调用存储过程创建每日指标数据视图
-        if not create_daily_basic_view(db):
+        if not create_daily_basic_view(db, force=force):
             logger.warning("⚠ 创建每日指标数据视图失败（可能没有数据表）")
         
-        # 调用存储过程创建因子数据视图
-        if not create_factor_view(db):
+        if not create_factor_view(db, force=force):
             logger.warning("⚠ 创建因子数据视图失败（可能没有数据表）")
         
-        # 调用存储过程创建专业版因子数据视图
-        if not create_stkfactorpro_view(db):
-            logger.warning("⚠ 创建专业版因子数据视图失败（可能没有数据表）")
+        # Mini 模式跳过 stkfactorpro
+        if not mini:
+            if not create_stkfactorpro_view(db, force=force):
+                logger.warning("⚠ 创建专业版因子数据视图失败（可能没有数据表）")
         
-        # 调用存储过程创建自定义量化因子结果视图
-        if not create_spacex_factor_view(db):
+        if not create_spacex_factor_view(db, force=force):
             logger.warning("⚠ 创建自定义量化因子结果视图失败（可能没有数据表）")
         
         logger.info("✓ 数据视图初始化完成")
@@ -268,7 +238,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例：
-  python zquant/scripts/init_all.py                    # 执行所有初始化步骤
+  python zquant/scripts/init_all.py                    # 默认执行核心初始化（Mini 模式）
+  python zquant/scripts/init_all.py --full            # 执行完整初始化
   python zquant/scripts/init_all.py --skip-view        # 跳过视图初始化
   python zquant/scripts/init_all.py --skip-factor      # 跳过因子初始化
   python zquant/scripts/init_all.py --skip-strategies  # 跳过策略模板初始化
@@ -283,6 +254,7 @@ def main():
     parser.add_argument("--skip-scheduler", action="store_true", help="跳过定时任务初始化")
     parser.add_argument("--skip-view", action="store_true", help="跳过视图初始化")
     parser.add_argument("--skip-strategies", action="store_true", help="跳过策略模板初始化")
+    parser.add_argument("--full", action="store_true", help="完整模式（包括所有非核心初始化步骤）")
     parser.add_argument("--force", action="store_true", help="强制模式（传递给子脚本）")
     parser.add_argument("--stop-on-error", action="store_true", help="遇到错误立即停止")
     
@@ -335,7 +307,7 @@ def main():
     
     # 步骤4: 定时任务初始化
     if not args.skip_scheduler:
-        success = init_scheduler_step(force=args.force)
+        success = init_scheduler_step(force=args.force, mini=not args.full)
         steps_executed.append(("定时任务初始化", success))
         if not success:
             steps_failed.append("定时任务初始化")
@@ -347,7 +319,7 @@ def main():
     
     # 步骤5: 视图初始化
     if not args.skip_view:
-        success = init_view_step(force=args.force)
+        success = init_view_step(force=args.force, mini=not args.full)
         steps_executed.append(("视图初始化", success))
         if not success:
             steps_failed.append("视图初始化")

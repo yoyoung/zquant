@@ -23,30 +23,19 @@
 import { Tabs } from 'antd';
 import React from 'react';
 import { PageCacheProvider } from '@/contexts/PageCacheContext';
-import Fundamentals from './fundamentals';
 import Stocks from './stocks';
 import Calendar from './calendar';
 import Daily from './daily';
 import DailyBasic from './daily-basic';
 import Factor from './factor';
-import FactorPro from './factor-pro';
 
 const DataPage: React.FC = () => {
   return (
     <div style={{ padding: 24 }}>
       <Tabs
-        defaultActiveKey="fundamentals"
+        defaultActiveKey="stocks"
         destroyInactiveTabPane={false}
         items={[
-          {
-            key: 'fundamentals',
-            label: '财务数据',
-            children: (
-              <PageCacheProvider>
-                <Fundamentals />
-              </PageCacheProvider>
-            ),
-          },
           {
             key: 'stocks',
             label: '股票列表',
@@ -89,15 +78,6 @@ const DataPage: React.FC = () => {
             children: (
               <PageCacheProvider>
                 <Factor />
-              </PageCacheProvider>
-            ),
-          },
-          {
-            key: 'factor-pro',
-            label: '专业版因子',
-            children: (
-              <PageCacheProvider>
-                <FactorPro />
               </PageCacheProvider>
             ),
           },

@@ -29,9 +29,10 @@ from loguru import logger
 from sqlalchemy import desc, func, text
 from sqlalchemy.orm import Session, aliased
 
+from zquant.config import settings
 from zquant.data.etl.tushare import TushareClient
 from zquant.data.view_manager import get_all_daily_tables
-from zquant.models.data import DataOperationLog, TableStatistics, TustockTradecal
+from zquant.models.data import DataOperationLog, TableStatistics, Tustock, TustockTradecal
 from zquant.models.scheduler import TaskExecution, TaskStatus
 
 
@@ -63,6 +64,10 @@ class DashboardService:
         }
 
         today = date.today()
+        
+        # 获取默认交易所列表，用于状态检查
+        default_exchanges = getattr(settings, "DEFAULT_EXCHANGES", ["SSE", "SZSE"])
+        primary_exchange = default_exchanges[0] if default_exchanges else "SSE"
 
         # 1. 检查Tushare连接状态
         try:
@@ -70,7 +75,7 @@ class DashboardService:
             # 使用交易日历接口测试连接（快速且简单）
             end_date = today.strftime("%Y%m%d")
             start_date = (today - timedelta(days=7)).strftime("%Y%m%d")
-            trade_cal_df = client.get_trade_cal(exchange="SSE", start_date=start_date, end_date=end_date)
+            trade_cal_df = client.get_trade_cal(exchange=primary_exchange, start_date=start_date, end_date=end_date)
             if trade_cal_df is not None and not trade_cal_df.empty:
                 result["tushare_connection_status"] = True
         except Exception as e:
@@ -79,10 +84,10 @@ class DashboardService:
 
         # 2. 检查当日是否交易日
         try:
-            # 查询今日的交易日历记录（检查SSE交易所，因为沪深交易日历基本一致）
+            # 查询今日的交易日历记录
             today_record = (
                 db.query(TustockTradecal)
-                .filter(TustockTradecal.cal_date == today, TustockTradecal.exchange == "SSE")
+                .filter(TustockTradecal.cal_date == today, TustockTradecal.exchange == primary_exchange)
                 .first()
             )
             if today_record and today_record.is_open == 1:
@@ -97,10 +102,26 @@ class DashboardService:
         try:
             if result["tushare_connection_status"]:
                 client = TushareClient(db=db)
-                # 使用一个示例股票代码（000001.SZ）获取最近30天的日线数据
+                # 使用一个配置内的交易所股票代码获取最近30天的日线数据
+                test_ts_code = None
+                
+                # 从数据库中找一个符合配置的股票
+                query = db.query(Tustock.ts_code).filter(Tustock.delist_date.is_(None))
+                if default_exchanges:
+                    query = query.filter(Tustock.exchange.in_(default_exchanges))
+                
+                first_stock = query.first()
+                if first_stock:
+                    test_ts_code = first_stock.ts_code
+                else:
+                    # 回退方案
+                    test_ts_code = "000001.SZ" if primary_exchange == "SZSE" else "600000.SH"
+                    if primary_exchange == "BJ":
+                        test_ts_code = "830832.BJ"
+                
                 end_date = today.strftime("%Y%m%d")
                 start_date = (today - timedelta(days=30)).strftime("%Y%m%d")
-                df = client.get_daily_data("000001.SZ", start_date, end_date)
+                df = client.get_daily_data(test_ts_code, start_date, end_date)
                 if df is not None and not df.empty and "trade_date" in df.columns:
                     # 获取最大交易日期
                     max_date_str = df["trade_date"].max()
@@ -116,18 +137,29 @@ class DashboardService:
 
         # 4. 检查当日数据是否准备就绪
         try:
-            # 获取所有日线数据分表
-            daily_tables = get_all_daily_tables(db)
-            if daily_tables:
-                # 检查任意一个分表中是否有今日的数据
-                # 使用第一个分表进行查询
-                table_name = daily_tables[0]
-                query_sql = text(f"SELECT COUNT(*) as cnt FROM `{table_name}` WHERE trade_date = :trade_date")
-                result_row = db.execute(query_sql, {"trade_date": today}).fetchone()
-                if result_row and result_row[0] > 0:
-                    result["today_data_ready"] = True
-                else:
-                    result["today_data_ready"] = False
+            # 获取所有符合配置的股票代码
+            query = db.query(Tustock.ts_code).filter(Tustock.delist_date.is_(None))
+            if default_exchanges:
+                query = query.filter(Tustock.exchange.in_(default_exchanges))
+            
+            # 取出前几个股票代码来检查
+            sample_stocks = query.limit(10).all()
+            sample_ts_codes = [s.ts_code for s in sample_stocks]
+            
+            if sample_ts_codes:
+                found_ready = False
+                # 检查这些股票对应的分表
+                for ts_code in sample_ts_codes:
+                    table_name = f"zq_data_tustock_daily_{ts_code.replace('.', '_').lower()}"
+                    try:
+                        query_sql = text(f"SELECT COUNT(*) as cnt FROM `{table_name}` WHERE trade_date = :trade_date")
+                        result_row = db.execute(query_sql, {"trade_date": today}).fetchone()
+                        if result_row and result_row[0] > 0:
+                            found_ready = True
+                            break
+                    except Exception:
+                        continue
+                result["today_data_ready"] = found_ready
             else:
                 result["today_data_ready"] = False
         except Exception as e:
@@ -136,18 +168,24 @@ class DashboardService:
 
         # 5. 获取数据库中最新日线数据日期
         try:
-            daily_tables = get_all_daily_tables(db)
-            if daily_tables:
-                # 查询所有分表，获取最大trade_date
+            # 同样使用符合配置的股票来检查
+            query = db.query(Tustock.ts_code).filter(Tustock.delist_date.is_(None))
+            if default_exchanges:
+                query = query.filter(Tustock.exchange.in_(default_exchanges))
+            
+            sample_stocks = query.limit(10).all()
+            sample_ts_codes = [s.ts_code for s in sample_stocks]
+            
+            if sample_ts_codes:
                 max_dates = []
-                for table_name in daily_tables[:10]:  # 限制查询前10个表，避免性能问题
+                for ts_code in sample_ts_codes:
+                    table_name = f"zq_data_tustock_daily_{ts_code.replace('.', '_').lower()}"
                     try:
                         query_sql = text(f"SELECT MAX(trade_date) as max_date FROM `{table_name}`")
                         result_row = db.execute(query_sql).fetchone()
                         if result_row and result_row[0]:
                             max_dates.append(result_row[0])
-                    except Exception as e:
-                        logger.debug(f"查询表 {table_name} 的最大日期失败: {e}")
+                    except Exception:
                         continue
 
                 if max_dates:

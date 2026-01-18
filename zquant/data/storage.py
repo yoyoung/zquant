@@ -25,19 +25,15 @@
 """
 
 from datetime import datetime
+from typing import Any
 
 from loguru import logger
 import pandas as pd
+from sqlalchemy import func
 from sqlalchemy.dialects.mysql import insert
 from sqlalchemy.orm import Session
 
 from zquant.data.storage_base import build_update_dict, ensure_table_exists, execute_upsert, log_sql_statement
-from zquant.data.view_manager import (
-    create_or_update_daily_basic_view,
-    create_or_update_daily_view,
-    create_or_update_factor_view,
-    create_or_update_stkfactorpro_view,
-)
 from zquant.models.data import (
     Fundamental,
     Tustock,
@@ -86,34 +82,34 @@ class DataStorage:
 
             ts_code = str(ts_code).strip()
 
-            # 提取6位数字的symbol（从ts_code中提取，如从"000001.SZ"提取"000001"）
-            symbol = row.get("symbol")
-            if pd.isna(symbol) or symbol is None or str(symbol).strip() == "":
-                # 从ts_code中提取，如"000001.SZ" -> "000001"
-                if "." in ts_code:
-                    symbol = ts_code.split(".")[0]
-                else:
-                    symbol = ts_code[:6] if len(ts_code) >= 6 else ts_code
+            def clean_field(val: Any) -> str | None:
+                if pd.isna(val) or val is None:
+                    return None
+                s = str(val).strip()
+                return s if s != "" else None
 
             record = {
                 "ts_code": ts_code,  # 主键
-                "symbol": str(symbol).strip() if len(str(symbol).strip()) <= 6 else str(symbol).strip()[:6],
+                "symbol": clean_field(row.get("symbol")) or (ts_code.split(".")[0] if "." in ts_code else ts_code[:6]),
                 "name": str(row.get("name", "")).strip() if pd.notna(row.get("name")) else "",
-                "area": str(row.get("area", "")).strip() if pd.notna(row.get("area")) else None,
-                "industry": str(row.get("industry", "")).strip() if pd.notna(row.get("industry")) else None,
-                "fullname": str(row.get("fullname", "")).strip() if pd.notna(row.get("fullname")) else None,
-                "enname": str(row.get("enname", "")).strip() if pd.notna(row.get("enname")) else None,
-                "cnspell": str(row.get("cnspell", "")).strip() if pd.notna(row.get("cnspell")) else None,
-                "market": str(row.get("market", "")).strip() if pd.notna(row.get("market")) else None,
-                "exchange": str(row.get("exchange", "")).strip() if pd.notna(row.get("exchange")) else None,
-                "curr_type": str(row.get("curr_type", "")).strip() if pd.notna(row.get("curr_type")) else None,
-                "list_status": str(row.get("list_status", "")).strip() if pd.notna(row.get("list_status")) else None,
+                "area": clean_field(row.get("area")),
+                "industry": clean_field(row.get("industry")),
+                "fullname": clean_field(row.get("fullname")),
+                "enname": clean_field(row.get("enname")),
+                "cnspell": clean_field(row.get("cnspell")),
+                "market": clean_field(row.get("market")),
+                "exchange": clean_field(row.get("exchange")),
+                "curr_type": clean_field(row.get("curr_type")),
+                "list_status": clean_field(row.get("list_status")),
                 "list_date": parse_date_field(row.get("list_date")),
                 "delist_date": parse_date_field(row.get("delist_date")),
-                "is_hs": str(row.get("is_hs", "")).strip() if pd.notna(row.get("is_hs")) else None,
-                "act_name": str(row.get("act_name", "")).strip() if pd.notna(row.get("act_name")) else None,
-                "act_ent_type": str(row.get("act_ent_type", "")).strip() if pd.notna(row.get("act_ent_type")) else None,
+                "is_hs": clean_field(row.get("is_hs")),
+                "act_name": clean_field(row.get("act_name")),
+                "act_ent_type": clean_field(row.get("act_ent_type")),
             }
+            # 特殊处理 symbol 长度限制
+            if record["symbol"] and len(record["symbol"]) > 6:
+                record["symbol"] = record["symbol"][:6]
             # 应用extra_info
             apply_extra_info(record, extra_info)
             records.append(record)
@@ -141,13 +137,14 @@ class DataStorage:
             "act_name",
             "act_ent_type",
         ]
-        update_dict = build_update_dict(stmt, update_fields, extra_info)
+        # 传入 skip_null_fields=True，当 API 返回的数据中某些字段为空时，不更新对应数据库列
+        update_dict = build_update_dict(stmt, update_fields, extra_info, skip_null_fields=True)
 
         return execute_upsert(db, stmt, update_dict, len(records), "更新股票基础信息 {count} 条")
 
     @staticmethod
     def upsert_daily_data(
-        db: Session, bars_df: pd.DataFrame, ts_code: str, extra_info: dict | None = None, update_view: bool = True
+        db: Session, bars_df: pd.DataFrame, ts_code: str, extra_info: dict | None = None, update_view: bool = False
     ) -> int:
         """
         批量插入或更新日线数据（按 ts_code 分表存储）
@@ -203,10 +200,6 @@ class DataStorage:
         update_dict = build_update_dict(stmt, update_fields, extra_info)
 
         count = execute_upsert(db, stmt, update_dict, len(records), f"更新日线数据 {ts_code} {{count}} 条")
-
-        # 更新视图（仅在需要时）
-        if update_view:
-            create_or_update_daily_view(db)
 
         return count
 
@@ -277,15 +270,11 @@ class DataStorage:
                     }
                 )
 
-        # 批量写入完成后，统一更新一次视图
-        if update_view:
-            create_or_update_daily_view(db)
-
         return {"total": total_count, "success": success_count, "failed": failed_list, "table_details": table_details}
 
     @staticmethod
     def upsert_daily_basic_data(
-        db: Session, basic_df: pd.DataFrame, ts_code: str, extra_info: dict | None = None, update_view: bool = True
+        db: Session, basic_df: pd.DataFrame, ts_code: str, extra_info: dict | None = None, update_view: bool = False
     ) -> int:
         """
         批量插入或更新每日指标数据（按 ts_code 分表存储）
@@ -366,10 +355,6 @@ class DataStorage:
 
         count = execute_upsert(db, stmt, update_dict, len(records), f"更新每日指标数据 {ts_code} {{count}} 条")
 
-        # 更新视图（仅在需要时）
-        if update_view:
-            create_or_update_daily_basic_view(db)
-
         return count
 
     @staticmethod
@@ -438,10 +423,6 @@ class DataStorage:
                         "error_message": error_msg,
                     }
                 )
-
-        # 批量写入完成后，统一更新一次视图
-        if update_view:
-            create_or_update_daily_basic_view(db)
 
         return {"total": total_count, "success": success_count, "failed": failed_list, "table_details": table_details}
 
@@ -566,7 +547,7 @@ class DataStorage:
 
     @staticmethod
     def upsert_factor_data(
-        db: Session, factor_df: pd.DataFrame, ts_code: str, extra_info: dict | None = None, update_view: bool = True
+        db: Session, factor_df: pd.DataFrame, ts_code: str, extra_info: dict | None = None, update_view: bool = False
     ) -> int:
         """
         批量插入或更新股票技术因子数据（按 ts_code 分表存储）
@@ -693,10 +674,6 @@ class DataStorage:
                 f"ts_code: {ts_code}, 表: {table_name}"
             )
 
-        # 更新视图（仅在需要时）
-        if update_view:
-            create_or_update_factor_view(db)
-
         return count
 
     @staticmethod
@@ -763,15 +740,11 @@ class DataStorage:
                     }
                 )
 
-        # 批量写入完成后，统一更新一次视图
-        if update_view:
-            create_or_update_factor_view(db)
-
         return {"total": total_count, "success": success_count, "failed": failed_list, "table_details": table_details}
 
     @staticmethod
     def upsert_stkfactorpro_data(
-        db: Session, factor_df: pd.DataFrame, ts_code: str, extra_info: dict | None = None, update_view: bool = True
+        db: Session, factor_df: pd.DataFrame, ts_code: str, extra_info: dict | None = None, update_view: bool = False
     ) -> int:
         """
         批量插入或更新股票技术因子（专业版）数据（按 ts_code 分表存储）
@@ -1135,11 +1108,6 @@ class DataStorage:
                 f"ts_code: {ts_code}, 表: {table_name}"
             )
 
-        # 更新视图逻辑：
-        # 按照 update_view 参数决定是否更新视图
-        if update_view:
-            create_or_update_stkfactorpro_view(db)
-
         return count
 
     @staticmethod
@@ -1205,9 +1173,5 @@ class DataStorage:
                         "error_message": error_msg,
                     }
                 )
-
-        # 批量写入完成后，统一更新一次视图
-        if update_view:
-            create_or_update_stkfactorpro_view(db)
 
         return {"total": total_count, "success": success_count, "failed": failed_list, "table_details": table_details}

@@ -86,10 +86,10 @@ class AuditMixin:
     """审计字段 Mixin"""
 
     created_by = Column(String(50), nullable=True, info={"name": "创建人"}, comment="创建人")
-    created_time = Column(DateTime, default=func.now(), nullable=False, index=True, info={"name": "创建时间"}, comment="创建时间")
+    created_time = Column(DateTime, default=func.now(), nullable=False, info={"name": "创建时间"}, comment="创建时间")
     updated_by = Column(String(50), nullable=True, info={"name": "修改人"}, comment="修改人")
     updated_time = Column(
-        DateTime, default=func.now(), onupdate=func.now(), nullable=False, index=True, info={"name": "修改时间"}, comment="修改时间"
+        DateTime, default=func.now(), onupdate=func.now(), nullable=False, info={"name": "修改时间"}, comment="修改时间"
     )
 
 

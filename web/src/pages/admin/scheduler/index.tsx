@@ -25,7 +25,8 @@ import { Button, Modal, message, Popconfirm, Tag, Space, Drawer, Descriptions, T
 import { QuestionCircleOutlined, MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { ActionType, ProColumns, ProFormInstance } from '@ant-design/pro-components';
-import { ProForm, ProFormText, ProFormSelect, ProFormSwitch, ProFormTextArea, ProFormDigit } from '@ant-design/pro-components';
+import { ProForm, ProFormText, ProFormSwitch, ProFormTextArea, ProFormDigit } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import React, { useRef, useState, useEffect } from 'react';
 import { useLocation } from '@umijs/max';
 import { usePageCache } from '@/hooks/usePageCache';
@@ -1360,10 +1361,11 @@ const Scheduler: React.FC = () => {
             rules={[{ required: true, message: '请输入任务名称' }]}
             placeholder="例如：每日数据同步"
           />
-          <ProFormSelect
+          <ProFormSelectWithAll
             name="task_type"
             label="任务类型"
             options={taskTypeOptions}
+            allValue=""
             rules={[{ required: true, message: '请选择任务类型' }]}
           />
           <ProForm.Item noStyle shouldUpdate={(prevValues: any, currentValues: any) => prevValues.task_type !== currentValues.task_type}>

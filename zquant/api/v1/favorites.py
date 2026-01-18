@@ -59,7 +59,14 @@ def _enrich_favorite_response(favorite: StockFavorite, db: Session) -> FavoriteR
         FavoriteResponse: 丰富的响应数据
     """
     # 查询股票信息
-    stock = db.query(Tustock).filter(Tustock.symbol == favorite.code, Tustock.delist_date.is_(None)).first()
+    from zquant.config import settings
+    query = db.query(Tustock).filter(Tustock.symbol == favorite.code, Tustock.delist_date.is_(None))
+    
+    # 全局交易所过滤
+    if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+        query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+        
+    stock = query.first()
     
     return FavoriteResponse(
         id=favorite.id,

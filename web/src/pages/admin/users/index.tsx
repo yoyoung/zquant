@@ -23,7 +23,8 @@
 import { ProTable } from '@ant-design/pro-components';
 import { Button, Modal, message, Popconfirm, Tag } from 'antd';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { ProForm, ProFormText, ProFormSelect, ProFormSwitch } from '@ant-design/pro-components';
+import { ProForm, ProFormText, ProFormSwitch } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import React, { useRef, useState, useEffect } from 'react';
 import { getUsers, createUser, updateUser, deleteUser, resetUserPassword } from '@/services/zquant/users';
 import { getRoles } from '@/services/zquant/roles';
@@ -346,14 +347,15 @@ const Users: React.FC = () => {
               placeholder: '请再次输入密码',
             }}
           />
-          <ProFormSelect
+          <ProFormSelectWithAll
             name="role_id"
             label="角色"
-            rules={[{ required: true, message: '请选择角色' }]}
             options={roles.map((role) => ({
               label: role.name,
               value: role.id,
             }))}
+            allValue=""
+            rules={[{ required: true, message: '请选择角色' }]}
             fieldProps={{
               placeholder: '请选择角色',
             }}

@@ -43,6 +43,8 @@
     "antd-style": "^3.7.0",
     "classnames": "^2.5.1",
     "dayjs": "^1.11.13",
+    "echarts": "^6.0.0",
+    "echarts-for-react": "^3.0.5",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

@@ -41,6 +41,7 @@ from zquant.schemas.config import (
     ConfigRequest,
     ConfigResponse,
     ConfigUpdateRequest,
+    SystemSettingsResponse,
     TushareTokenTestRequest,
     TushareTokenTestResponse,
 )
@@ -313,3 +314,20 @@ def test_tushare_token(
             message = "Token 测试失败：接口调用异常"
 
         return TushareTokenTestResponse(success=False, message=message)
+
+
+@router.get("/config/system-settings", response_model=SystemSettingsResponse, summary="获取系统全局设置")
+def get_system_settings(
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    获取系统全局设置，包括默认交易所等
+    """
+    from zquant.config import settings
+    from zquant import __version__
+
+    return SystemSettingsResponse(
+        default_exchanges=getattr(settings, "DEFAULT_EXCHANGES", ["SSE", "SZSE"]),
+        app_name="ZQuant",
+        app_version=__version__,
+    )

@@ -21,7 +21,8 @@
 //     - Repository: https://github.com/yoyoung/zquant
 
 import { ProTable } from '@ant-design/pro-components';
-import { Button, message, Form, Input, DatePicker, Select } from 'antd';
+import { Button, message, Form, Input, DatePicker } from 'antd';
+import SelectWithAll from '@/components/SelectWithAll';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import React, { useRef, useState, useEffect } from 'react';
 import { getFactorResults, getFactorDefinitions } from '@/services/zquant/factor';
@@ -106,16 +107,14 @@ const FactorResults: React.FC = () => {
           <Input placeholder="例如：000001.SZ" style={{ width: 200 }} />
         </Form.Item>
         <Form.Item name="factor_name" label="因子名称">
-          <Select
+          <SelectWithAll
             placeholder="选择因子"
             style={{ width: 200 }}
-            options={[
-              { label: '全部', value: '' },
-              ...factorDefinitions.map((f) => ({
-                label: `${f.cn_name} (${f.factor_name})`,
-                value: f.factor_name,
-              })),
-            ]}
+            options={factorDefinitions.map((f) => ({
+              label: `${f.cn_name} (${f.factor_name})`,
+              value: f.factor_name,
+            }))}
+            allValue=""
           />
         </Form.Item>
         <Form.Item name="trade_date" label="交易日期">

@@ -20,7 +20,8 @@
 //     - Documentation: https://github.com/yoyoung/zquant/blob/main/README.md
 //     - Repository: https://github.com/yoyoung/zquant
 
-import { ProForm, ProFormSelect, ProFormText } from '@ant-design/pro-components';
+import { ProForm, ProFormText } from '@ant-design/pro-components';
+import ProFormSelectWithAll from '@/components/ProFormSelectWithAll';
 import type { ProFormInstance } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import { Button, Card, message, Modal, Table, Tag, Typography, Space, Spin, Input } from 'antd';
@@ -30,6 +31,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { getStocks, fetchStockListFromApi, validateStockList } from '@/services/zquant/data';
 import { usePageCache } from '@/hooks/usePageCache';
 import { formatRequestParamsForDisplay } from '@/utils/requestParamsFormatter';
+import { renderDateTime } from '@/components/DataTable';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -275,15 +277,47 @@ const Stocks: React.FC = () => {
     },
   ];
 
+  // 解析代码字段：将逗号分隔的字符串转换为数组或字符串
+  const parseCode = (code: string | undefined): string | string[] | undefined => {
+    if (!code || !code.trim()) {
+      return undefined; // 留空查询所有
+    }
+    
+    const trimmed = code.trim();
+    // 如果包含逗号，分割为数组
+    if (trimmed.includes(',')) {
+      const codes = trimmed
+        .split(',')
+        .map(c => c.trim())
+        .filter(c => c.length > 0); // 过滤空值
+      
+      if (codes.length === 0) {
+        return undefined; // 分割后没有有效代码，查询所有
+      } else if (codes.length === 1) {
+        return codes[0]; // 只有一个有效代码，返回字符串
+      } else {
+        return codes; // 多个代码，返回数组
+      }
+    } else {
+      // 不包含逗号，单个代码，返回字符串
+      return trimmed;
+    }
+  };
+
   const handleQuery = async (values: any) => {
     try {
       setLoading(true);
       // 保存表单值到缓存
       pageCache.saveFormValues(values);
 
+      // 解析 symbol 和 ts_code 字段
+      const parsedSymbol = parseCode(values.symbol);
+      const parsedTsCode = parseCode(values.ts_code);
+
       const response = await getStocks({
         exchange: values.exchange || undefined,
-        symbol: values.symbol || undefined,
+        symbol: parsedSymbol,
+        ts_code: parsedTsCode,
         name: values.name || undefined,
       });
       setDataSource(response.stocks);
@@ -446,6 +480,7 @@ const Stocks: React.FC = () => {
         if (!b.created_time) return -1;
         return new Date(a.created_time).getTime() - new Date(b.created_time).getTime();
       },
+      render: (text: any) => renderDateTime(text),
     },
     {
       title: STOCK_FIELD_COMMENTS['updated_by'] || '修改人',
@@ -463,6 +498,7 @@ const Stocks: React.FC = () => {
         if (!b.updated_time) return -1;
         return new Date(a.updated_time).getTime() - new Date(b.updated_time).getTime();
       },
+      render: (text: any) => renderDateTime(text),
     },
   ];
 
@@ -479,7 +515,7 @@ const Stocks: React.FC = () => {
           }
         }}
         initialValues={{
-          symbol: '000001',
+          ts_code: '000001.SZ',
         }}
         submitter={{
           render: (props, doms) => {
@@ -517,20 +553,26 @@ const Stocks: React.FC = () => {
           },
         }}
       >
-        <ProFormSelect
+        <ProFormSelectWithAll
           name="exchange"
           label="交易所"
           options={[
-            { label: '全部', value: '' },
             { label: '上交所 (SSE)', value: 'SSE' },
             { label: '深交所 (SZSE)', value: 'SZSE' },
           ]}
+          allValue=""
           width="sm"
         />
         <ProFormText
           name="symbol"
           label="股票代码"
-          placeholder="请输入股票代码，如：000001"
+          placeholder="请输入股票代码，单个如：000001，多个用逗号分隔如：000001,600004"
+          width="sm"
+        />
+        <ProFormText
+          name="ts_code"
+          label="TS代码"
+          placeholder="单个如：000001.SZ，多个用逗号分隔如：000001.SZ,60000.SH"
           width="sm"
         />
         <ProFormText

@@ -140,6 +140,58 @@ export const usePageCache = () => {
     return get()?.modalStates?.[modalKey];
   }, [get]);
 
+  /**
+   * 保存 ProTable 完整状态（查询参数、分页、数据源、总数）
+   * @param queryParams ProTable 查询参数
+   * @param pagination 分页信息
+   * @param dataSource 数据源
+   * @param total 总数
+   */
+  const saveProTableState = useCallback((
+    queryParams: any,
+    pagination?: { current: number; pageSize: number },
+    dataSource?: any[],
+    total?: number
+  ) => {
+    update({
+      queryParams,
+      pagination,
+      dataSource,
+      total,
+    });
+  }, [update]);
+
+  /**
+   * 获取 ProTable 完整状态
+   * @returns 包含 queryParams、pagination、dataSource、total 的对象
+   */
+  const getProTableState = useCallback(() => {
+    const cache = get();
+    if (!cache) return undefined;
+    return {
+      queryParams: cache.queryParams,
+      pagination: cache.pagination,
+      dataSource: cache.dataSource,
+      total: cache.total,
+    };
+  }, [get]);
+
+  /**
+   * 保存选中的列设置
+   * @param selectedColumns 选中的列数组
+   */
+  const saveSelectedColumns = useCallback((selectedColumns: string[]) => {
+    update({ selectedColumns });
+  }, [update]);
+
+  /**
+   * 从缓存恢复选中的列设置
+   * @returns 选中的列数组，如果不存在则返回undefined
+   */
+  const getSelectedColumns = useCallback((): string[] | undefined => {
+    return get()?.selectedColumns;
+  }, [get]);
+
   return useMemo(() => ({
     // 基础方法
     save,
@@ -156,12 +208,20 @@ export const usePageCache = () => {
     saveModalState,
     getModalState,
     
+    // ProTable 专用方法
+    saveProTableState,
+    getProTableState,
+    saveSelectedColumns,
+    getSelectedColumns,
+    
     // 当前路径（只读）
     currentPath: currentPathRef.current,
   }), [
     save, get, clear, has, update, 
     saveFormValues, getFormValues, saveDataSource, 
-    getDataSource, saveModalState, getModalState
+    getDataSource, saveModalState, getModalState,
+    saveProTableState, getProTableState,
+    saveSelectedColumns, getSelectedColumns
   ]);
 };
 

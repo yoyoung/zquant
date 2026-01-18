@@ -88,8 +88,11 @@ from zquant.schemas.data import (
     TableStatisticsItem,
     TableStatisticsRequest,
     TableStatisticsResponse,
+    StockIndicatorRequest,
+    StockIndicatorResponse,
 )
 from zquant.services.data import DataService
+from zquant.services.indicator_service import IndicatorService
 from zquant.utils.data_utils import clean_nan_values
 
 router = APIRouter()
@@ -539,8 +542,8 @@ def validate_calendar(
 def get_stock_list(
     request: StockListRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)
 ):
-    """获取股票列表（支持按交易所、股票代码、股票名称查询）"""
-    stocks = DataService.get_stock_list(db, exchange=request.exchange, symbol=request.symbol, name=request.name)
+    """获取股票列表（支持按交易所、股票代码、TS代码、股票名称查询）"""
+    stocks = DataService.get_stock_list(db, exchange=request.exchange, symbol=request.symbol, ts_code=request.ts_code, name=request.name)
     return StockListResponse(stocks=stocks)
 
 
@@ -2156,3 +2159,15 @@ def sync_data(db: Session = Depends(get_db), current_user: User = Depends(get_cu
     cal_count = scheduler.sync_trading_calendar(db, extra_info=extra_info)
 
     return {"message": "数据同步完成", "stock_count": stock_count, "calendar_count": cal_count}
+
+
+@router.post("/indicators", response_model=StockIndicatorResponse, summary="获取技术指标数据")
+@handle_data_api_error
+def get_indicators(
+    request: StockIndicatorRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)
+):
+    """获取技术指标数据 (MACD, KDJ, RSI 等)"""
+    items = IndicatorService.get_indicators(
+        db, request.ts_code, request.start_date, request.end_date, request.indicators
+    )
+    return StockIndicatorResponse(ts_code=request.ts_code, items=items, indicators=request.indicators)

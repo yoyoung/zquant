@@ -30,7 +30,8 @@
 4. 创建ZQuant任务（8个ZQuant数据同步任务）
 
 使用方法：
-    python scripts/init_scheduler.py                    # 默认：建表+创建ZQuant任务
+    python scripts/init_scheduler.py                    # 默认：建表+核心ZQuant任务（Mini 模式）
+    python scripts/init_scheduler.py --full            # 完整：建表+所有ZQuant任务（包括专业版和财务）
     python scripts/init_scheduler.py --all             # 执行所有步骤（表+示例+编排+ZQuant）
     python scripts/init_scheduler.py --tables-only     # 只创建表
     python scripts/init_scheduler.py --examples-only   # 只创建示例任务
@@ -204,12 +205,12 @@ def _create_single_task(db: Session, task_config: dict, skip_tasks: set, existin
         raise
 
 
-def create_zquant_tasks(force: bool = False):
+def create_zquant_tasks(force: bool = False, mini: bool = False):
     """创建ZQuant任务"""
-    logger.info("开始创建ZQuant任务...")
+    logger.info(f"开始创建ZQuant任务{' (Mini 模式)' if mini else ''}...")
     db: Session = SessionLocal()
 
-    # 1. 定义核心步骤名称常量（按执行顺序1~10连续编号）
+    # 1. 定义核心步骤名称常量
     STEP1_NAME = "STEP1-同步交易日历（当日）-命令执行"
     STEP2_NAME = "STEP2-同步股票列表（当日）-命令执行"
     STEP3_NAME = "STEP3-同步日线数据（当日）-命令执行"
@@ -223,7 +224,6 @@ def create_zquant_tasks(force: bool = False):
 
     try:
         # ========== 配置：需要跳过的任务列表 ==========
-        # 在此列表中添加任务名称，这些任务将不会被初始化
         SKIP_TASKS = {
             "示例任务-快速测试",
             "示例任务-每分钟",
@@ -233,6 +233,13 @@ def create_zquant_tasks(force: bool = False):
             "示例任务-命令执行",
             "同步所有股票日线数据-数据库任务",
         }
+        
+        # Mini 模式下跳过非核心任务
+        if mini:
+            SKIP_TASKS.add(STEP6_NAME)
+            SKIP_TASKS.add(STEP7_NAME)
+            SKIP_TASKS.add("同步财务数据-命令执行（时间段）")
+            SKIP_TASKS.add("同步专业版因子数据-命令执行（时间段）")
         # ============================================
 
         # 如果强制模式，先删除已存在的示例任务
@@ -248,7 +255,7 @@ def create_zquant_tasks(force: bool = False):
             # --- 核心步骤 STEP1 ~ STEP10 ---
             {
                 "name": STEP1_NAME,
-                "cron_expression": "0 2 * * *",  # 每天凌晨2点执行
+                "cron_expression": "0 18 * * *",  # 每天凌晨2点执行
                 "description": "使用命令执行方式同步交易日历数据，每天自动更新交易日历",
                 "config": {"command": "python zquant/scheduler/job/sync_trading_calendar.py", "timeout_seconds": 600},
                 "max_retries": 3,
@@ -257,9 +264,9 @@ def create_zquant_tasks(force: bool = False):
             },
             {
                 "name": STEP2_NAME,
-                "cron_expression": "0 1 * * *",  # 每天凌晨1点执行
+                "cron_expression": "0 18 * * *",  # 每天凌晨1点执行
                 "description": "使用命令执行方式同步股票列表数据，每天自动更新股票基础信息",
-                "config": {"command": "python zquant/scheduler/job/sync_stock_list.py", "timeout_seconds": 300},
+                "config": {"command": "python zquant/scheduler/job/sync_stock_list.py", "timeout_seconds": 600},
                 "max_retries": 3,
                 "retry_interval": 300,
                 "enabled": True,
@@ -268,7 +275,7 @@ def create_zquant_tasks(force: bool = False):
                 "name": STEP3_NAME,
                 "cron_expression": "0 18 * * *",  # 每天收盘后18:00执行
                 "description": "使用命令执行方式同步所有股票的日线数据，每天收盘后自动更新日线数据",
-                "config": {"command": "python zquant/scheduler/job/sync_daily_data.py", "timeout_seconds": 3600},
+                "config": {"command": "python zquant/scheduler/job/sync_daily_data.py", "timeout_seconds": 36000},
                 "max_retries": 3,
                 "retry_interval": 600,
                 "enabled": True,
@@ -277,7 +284,7 @@ def create_zquant_tasks(force: bool = False):
                 "name": STEP4_NAME,
                 "cron_expression": "0 18 * * *",  # 每天收盘后18:00执行
                 "description": "使用命令执行方式同步所有股票的每日指标数据，每天收盘后自动更新",
-                "config": {"command": "python zquant/scheduler/job/sync_daily_basic_data.py", "timeout_seconds": 3600},
+                "config": {"command": "python zquant/scheduler/job/sync_daily_basic_data.py", "timeout_seconds": 36000},
                 "max_retries": 3,
                 "retry_interval": 600,
                 "enabled": True,
@@ -286,7 +293,7 @@ def create_zquant_tasks(force: bool = False):
                 "name": STEP5_NAME,
                 "cron_expression": "0 18 * * *",  # 每天收盘后18:00执行
                 "description": "使用命令执行方式同步所有股票的因子数据，每天收盘后自动更新（按 ts_code 分表存储）",
-                "config": {"command": "python zquant/scheduler/job/sync_factor_data.py", "timeout_seconds": 3600},
+                "config": {"command": "python zquant/scheduler/job/sync_factor_data.py", "timeout_seconds": 36000},
                 "max_retries": 3,
                 "retry_interval": 600,
                 "enabled": True,
@@ -295,14 +302,14 @@ def create_zquant_tasks(force: bool = False):
                 "name": STEP6_NAME,
                 "cron_expression": "0 18 * * *",  # 每天收盘后18:00执行
                 "description": "使用命令执行方式同步所有股票的专业版因子数据，每天收盘后自动更新（按 ts_code 分表存储）",
-                "config": {"command": "python zquant/scheduler/job/sync_stkfactorpro_data.py", "timeout_seconds": 3600},
+                "config": {"command": "python zquant/scheduler/job/sync_stkfactorpro_data.py", "timeout_seconds": 36000},
                 "max_retries": 3,
                 "retry_interval": 600,
                 "enabled": True,
             },
             {
                 "name": STEP7_NAME,
-                "cron_expression": "0 2 1 * *",  # 每月1号凌晨2点执行
+                "cron_expression": "0 18 * * *",  # 每天收盘后18:00执行
                 "description": "使用命令执行方式同步所有股票的财务数据（利润表），每月自动更新",
                 "config": {
                     "command": "python zquant/scheduler/job/sync_financial_data.py --statement-type income",
@@ -339,9 +346,9 @@ def create_zquant_tasks(force: bool = False):
             },
             {
                 "name": STEP10_NAME,
-                "cron_expression": "0 3 * * *",  # 每天凌晨3点执行（在数据同步之后）
+                "cron_expression": "0 19 * * *",  # 每天收盘后19点执行（在数据同步之后）
                 "description": "使用命令执行方式统计每日数据表中的数据入库情况，每天自动统计当天的数据",
-                "config": {"command": "python zquant/scheduler/job/sync_table_statistics.py", "timeout_seconds": 1800},
+                "config": {"command": "python zquant/scheduler/job/sync_table_statistics.py", "timeout_seconds": 36000},
                 "max_retries": 3,
                 "retry_interval": 600,
                 "enabled": True,
@@ -474,50 +481,45 @@ def create_zquant_tasks(force: bool = False):
 
         logger.info(f"✓ ZQuant任务创建完成！共创建 {created_count} 个新任务，跳过 {skipped_count} 个任务")
 
-        # 2. 创建 STEP1 ~ STEP10 的串行编排任务
-        logger.info("开始创建STEP1~STEP10串行编排任务...")
+        # 2. 创建核心步骤的串行编排任务
+        logger.info(f"开始创建核心步骤串行编排任务{' (Mini 模式)' if mini else ''}...")
         try:
-            # 查询所有STEP任务，获取任务ID映射（按执行顺序1~10）
-            step_task_names = [
+            # 查询所有有效步骤任务
+            all_step_names = [
                 STEP1_NAME, STEP2_NAME, STEP3_NAME, STEP4_NAME,
                 STEP5_NAME, STEP6_NAME, STEP7_NAME, STEP8_NAME, STEP9_NAME, STEP10_NAME
             ]
+            # 过滤掉跳过的任务
+            step_task_names = [name for name in all_step_names if name not in SKIP_TASKS]
 
             step_tasks = db.query(ScheduledTask).filter(ScheduledTask.name.in_(step_task_names)).all()
             step_task_map = {task.name: task for task in step_tasks}
 
-            # 检查是否所有STEP任务都存在
+            # 检查是否所有需要的任务都存在
             missing_tasks = [name for name in step_task_names if name not in step_task_map]
             if missing_tasks:
-                logger.warning(f"以下STEP任务不存在，将跳过编排任务创建: {missing_tasks}")
-                logger.info("✓ 跳过创建STEP1~STEP10串行编排任务（部分任务不存在）")
+                logger.warning(f"以下核心任务不存在，将跳过编排任务创建: {missing_tasks}")
             else:
-                # 检查是否所有任务都已启用
-                disabled_tasks = [name for name, task in step_task_map.items() if not task.enabled]
-                if disabled_tasks:
-                    logger.warning(f"以下STEP任务未启用: {disabled_tasks}")
+                # 构建串行执行流
+                tasks_in_workflow = []
+                last_task_id = None
+                for name in step_task_names:
+                    task_obj = step_task_map[name]
+                    tasks_in_workflow.append({
+                        "task_id": task_obj.id,
+                        "name": name,
+                        "dependencies": [last_task_id] if last_task_id else []
+                    })
+                    last_task_id = task_obj.id
 
-                # 创建编排任务配置 (串行执行，严格按顺序依赖)
-                # 执行顺序：STEP1 → STEP2 → STEP3 → STEP4 → STEP5 → STEP6 → STEP7 → STEP8 → STEP9 → STEP10
                 workflow_config = {
                     "workflow_type": "serial",
-                    "tasks": [
-                        {"task_id": step_task_map[STEP1_NAME].id, "name": STEP1_NAME, "dependencies": []},
-                        {"task_id": step_task_map[STEP2_NAME].id, "name": STEP2_NAME, "dependencies": [step_task_map[STEP1_NAME].id]},
-                        {"task_id": step_task_map[STEP3_NAME].id, "name": STEP3_NAME, "dependencies": [step_task_map[STEP2_NAME].id]},
-                        {"task_id": step_task_map[STEP4_NAME].id, "name": STEP4_NAME, "dependencies": [step_task_map[STEP3_NAME].id]},
-                        {"task_id": step_task_map[STEP5_NAME].id, "name": STEP5_NAME, "dependencies": [step_task_map[STEP4_NAME].id]},
-                        {"task_id": step_task_map[STEP6_NAME].id, "name": STEP6_NAME, "dependencies": [step_task_map[STEP5_NAME].id]},
-                        {"task_id": step_task_map[STEP7_NAME].id, "name": STEP7_NAME, "dependencies": [step_task_map[STEP6_NAME].id]},
-                        {"task_id": step_task_map[STEP8_NAME].id, "name": STEP8_NAME, "dependencies": [step_task_map[STEP7_NAME].id]},
-                        {"task_id": step_task_map[STEP9_NAME].id, "name": STEP9_NAME, "dependencies": [step_task_map[STEP8_NAME].id]},
-                        {"task_id": step_task_map[STEP10_NAME].id, "name": STEP10_NAME, "dependencies": [step_task_map[STEP9_NAME].id]},
-                    ],
+                    "tasks": tasks_in_workflow,
                     "on_failure": "stop",
                 }
 
                 # 检查是否已存在该编排任务
-                workflow_name = "编排任务-STEP1~STEP10串行执行"
+                workflow_name = f"编排任务-核心步骤串行执行{'-Mini' if mini else ''}"
                 existing_workflow = (
                     db.query(ScheduledTask)
                     .filter(ScheduledTask.name == workflow_name, ScheduledTask.task_type == TaskType.WORKFLOW)
@@ -1180,6 +1182,7 @@ def main():
     parser.add_argument("--examples-only", action="store_true", help="只创建示例任务")
     parser.add_argument("--workflow-only", action="store_true", help="只创建编排任务示例")
     parser.add_argument("--zquant-only", action="store_true", help="只创建ZQuant任务（默认行为）")
+    parser.add_argument("--full", action="store_true", help="完整模式（包括专业版因子和财务数据等非核心任务）")
     parser.add_argument("--force", action="store_true", help="强制重新创建（删除已存在的任务）")
 
     args = parser.parse_args()
@@ -1226,7 +1229,7 @@ def main():
         logger.info("")
 
     if "zquant" in steps:
-        if not create_zquant_tasks(force=args.force):
+        if not create_zquant_tasks(force=args.force, mini=not args.full):
             success = False
         logger.info("")
 

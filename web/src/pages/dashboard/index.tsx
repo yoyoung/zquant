@@ -22,12 +22,35 @@
 
 import { PageContainer } from '@ant-design/pro-components';
 import { Card, Row, Col, Statistic, Button, Space, message, Spin, Divider, Tooltip } from 'antd';
-import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, DatabaseOutlined, TableOutlined, CheckOutlined, CloseOutlined, PlusOutlined, EditOutlined, InfoCircleOutlined, CalendarOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, DatabaseOutlined, TableOutlined, CheckOutlined, CloseOutlined, PlusOutlined, EditOutlined, InfoCircleOutlined, CalendarOutlined, ClockCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import React, { useState, useEffect, useCallback } from 'react';
 import { getSyncStatus, getTaskStats, getLocalDataStats } from '@/services/zquant/dashboard';
 import { Helmet } from '@umijs/max';
 import Settings from '../../../config/defaultSettings';
 import dayjs from 'dayjs';
+
+// 统一的卡片样式
+const cardStyle = {
+  borderRadius: '12px',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+  border: 'none',
+};
+
+// KPI卡片样式
+const kpiCardStyle = {
+  ...cardStyle,
+  background: '#fff',
+  padding: '20px',
+};
+
+// 格式化数字显示
+const formatNumber = (num: number | null | undefined): string => {
+  if (num === null || num === undefined) return '0';
+  if (num >= 10000) {
+    return `${(num / 10000).toFixed(1)}万`;
+  }
+  return num.toString();
+};
 
 const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -177,132 +200,138 @@ const Dashboard: React.FC = () => {
         }
       >
         <Spin spinning={loading}>
-          {/* 时间信息展示 */}
-          <Card title="时间信息" style={{ marginBottom: 24 }}>
-            <Row gutter={[16, 16]} style={{ display: 'flex', flexWrap: 'nowrap' }}>
-              {/* 当前日期 */}
-              <Col flex={1}>
-                <Card
-                  bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>当前日期</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
-                >
-                  <Statistic
-                    value={formatDateDisplay(currentTime)}
-                    prefix={<CalendarOutlined style={{ color: '#1890ff' }} />}
-                    valueStyle={{ color: '#1890ff' }}
-                    style={{ marginTop: '-12px' }}
-                  />
-                </Card>
-              </Col>
+          {/* 顶部6个关键指标卡片 */}
+          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            {/* 卡片1：数据同步状态 */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
+              <Card
+                style={kpiCardStyle}
+                bodyStyle={{ padding: '20px', textAlign: 'center' }}
+              >
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <DatabaseOutlined />
+                  <span>数据同步状态</span>
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: syncStatus?.tushare_connection_status ? '#52c41a' : '#ff4d4f', marginBottom: '8px' }}>
+                  {syncStatus ? (syncStatus.tushare_connection_status ? '正常' : '异常') : '加载中...'}
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)' }}>
+                  {syncStatus?.latest_trade_date_from_api ? `最新: ${formatDate(syncStatus.latest_trade_date_from_api)}` : '暂无数据'}
+                </div>
+              </Card>
+            </Col>
 
-              {/* 北京时间 */}
-              <Col flex={1}>
-                <Card
-                  bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>北京时间</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
-                >
-                  <Statistic
-                    value={formatTimeDisplay(currentTime)}
-                    prefix={<ClockCircleOutlined style={{ color: '#1890ff' }} />}
-                    valueStyle={{ color: '#1890ff', fontSize: '24px' }}
-                    style={{ marginTop: '-12px' }}
-                  />
-                </Card>
-              </Col>
+            {/* 卡片2：交易日状态 */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
+              <Card
+                style={kpiCardStyle}
+                bodyStyle={{ padding: '20px', textAlign: 'center' }}
+              >
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <CalendarOutlined />
+                  <span>交易日状态</span>
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: syncStatus?.is_trading_day ? '#52c41a' : '#faad14', marginBottom: '8px' }}>
+                  {syncStatus ? (syncStatus.is_trading_day ? '交易日' : '非交易日') : '加载中...'}
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)' }}>
+                  {formatDateDisplay(currentTime)}
+                </div>
+              </Card>
+            </Col>
 
-              {/* 星期 */}
-              <Col flex={1}>
-                <Card
-                  bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>星期</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
-                >
-                  <Statistic
-                    value={getWeekday(currentTime)}
-                    valueStyle={{ color: '#722ed1' }}
-                    style={{ marginTop: '-12px' }}
-                  />
-                </Card>
-              </Col>
+            {/* 卡片3：定时任务总数 */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
+              <Card
+                style={kpiCardStyle}
+                bodyStyle={{ padding: '20px', textAlign: 'center' }}
+              >
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <TableOutlined />
+                  <span>定时任务总数</span>
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#1890ff', marginBottom: '8px' }}>
+                  {taskStats?.total_tasks ?? 0}
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)' }}>
+                  {taskStats ? `已完成 ${taskStats.completed_tasks} / 进行中 ${taskStats.running_tasks} / 失败 ${taskStats.failed_tasks}` : '暂无数据'}
+                </div>
+              </Card>
+            </Col>
 
-              {/* 交易日状态 */}
-              <Col flex={1}>
-                <Card
-                  bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>交易日状态</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
-                >
-                  <Statistic
-                    value={syncStatus ? (syncStatus.is_trading_day ? '交易日' : '非交易日') : '加载中...'}
-                    prefix={
-                      syncStatus ? (
-                        syncStatus.is_trading_day ? (
-                          <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                        ) : (
-                          <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-                        )
-                      ) : null
-                    }
-                    valueStyle={{
-                      color: syncStatus
-                        ? syncStatus.is_trading_day
-                          ? '#52c41a'
-                          : '#ff4d4f'
-                        : '#8c8c8c',
-                    }}
-                    style={{ marginTop: '-12px' }}
-                  />
-                </Card>
-              </Col>
+            {/* 卡片4：成功操作数 */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
+              <Card
+                style={kpiCardStyle}
+                bodyStyle={{ padding: '20px', textAlign: 'center' }}
+              >
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <CheckCircleOutlined />
+                  <span>成功操作数</span>
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#52c41a', marginBottom: '8px' }}>
+                  {localDataStats?.success_operations ?? 0}
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)' }}>
+                  {localDataStats ? `总操作数 ${localDataStats.success_operations + (localDataStats.failed_operations || 0)}` : '暂无数据'}
+                </div>
+              </Card>
+            </Col>
 
-              {/* 开市状态 */}
-              <Col flex={1}>
-                <Card
-                  bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>开市状态</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
-                >
-                  {(() => {
-                    const tradingStatus = getTradingStatus(syncStatus?.is_trading_day ?? null, currentTime);
-                    return (
-                      <Statistic
-                        value={tradingStatus.status}
-                        prefix={
-                          tradingStatus.status === '开市' ? (
-                            <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                          ) : tradingStatus.status === '闭市' ? (
-                            <CloseCircleOutlined style={{ color: '#faad14' }} />
-                          ) : null
-                        }
-                        valueStyle={{ color: tradingStatus.color }}
-                        style={{ marginTop: '-12px' }}
-                      />
-                    );
-                  })()}
-                </Card>
-              </Col>
-            </Row>
-          </Card>
+            {/* 卡片5：失败操作数 */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
+              <Card
+                style={kpiCardStyle}
+                bodyStyle={{ padding: '20px', textAlign: 'center' }}
+              >
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <CloseCircleOutlined />
+                  <span>失败操作数</span>
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#ff4d4f', marginBottom: '8px' }}>
+                  {localDataStats?.failed_operations ?? 0}
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)' }}>
+                  {localDataStats && (localDataStats.success_operations + (localDataStats.failed_operations || 0)) > 0
+                    ? `失败率 ${((localDataStats.failed_operations || 0) / (localDataStats.success_operations + (localDataStats.failed_operations || 0)) * 100).toFixed(1)}%`
+                    : '暂无数据'}
+                </div>
+              </Card>
+            </Col>
+
+            {/* 卡片6：数据记录总数 */}
+            <Col xs={24} sm={12} lg={8} xl={4}>
+              <Card
+                style={kpiCardStyle}
+                bodyStyle={{ padding: '20px', textAlign: 'center' }}
+              >
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <DatabaseOutlined />
+                  <span>数据记录总数</span>
+                </div>
+                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#1890ff', marginBottom: '8px' }}>
+                  {formatNumber(localDataStats?.total_records_sum ?? 0)}
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(0, 0, 0, 0.45)' }}>
+                  {localDataStats ? `日记录数 ${formatNumber(localDataStats.daily_records_sum)}` : '暂无数据'}
+                </div>
+              </Card>
+            </Col>
+          </Row>
 
           <Card
             title="数据同步"
-            style={{ marginBottom: 24 }}
+            style={{ ...cardStyle, marginBottom: 24 }}
           >
             <Row gutter={[16, 16]}>
               {/* Tushare同步链路状态 */}
               <Col xs={24} sm={12} lg={6}>
                 <Card
                   bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>Tushare同步链路</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
+                  style={cardStyle}
+                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>Tushare同步链路</span>}
+                  headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                  bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                   extra={
                     <Tooltip title="显示Tushare数据同步链路的状态信息，包括连接状态等">
                       <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -326,6 +355,7 @@ const Dashboard: React.FC = () => {
                           ? '#52c41a'
                           : '#ff4d4f'
                         : '#8c8c8c',
+                      fontSize: '20px',
                     }}
                     style={{ marginTop: '-12px' }}
                   />
@@ -336,9 +366,10 @@ const Dashboard: React.FC = () => {
               <Col xs={24} sm={12} lg={6}>
                 <Card
                   bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>当日是否交易日</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
+                  style={cardStyle}
+                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>当日是否交易日</span>}
+                  headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                  bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                   extra={
                     <Tooltip title="显示当日是否为交易日，用于判断是否需要进行数据同步">
                       <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -358,6 +389,7 @@ const Dashboard: React.FC = () => {
                     }
                     valueStyle={{
                       color: syncStatus ? (syncStatus.is_trading_day ? '#52c41a' : '#ff4d4f') : '#8c8c8c',
+                      fontSize: '20px',
                     }}
                     style={{ marginTop: '-12px' }}
                   />
@@ -368,9 +400,10 @@ const Dashboard: React.FC = () => {
               <Col xs={24} sm={12} lg={6}>
                 <Card
                   bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>Tushare最新日线数据日期</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
+                  style={cardStyle}
+                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>Tushare最新日线数据日期</span>}
+                  headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                  bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                   extra={
                     <Tooltip title="显示Tushare接口返回的最新日线行情数据的交易日期">
                       <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -385,6 +418,7 @@ const Dashboard: React.FC = () => {
                     }
                     valueStyle={{
                       color: syncStatus && syncStatus.latest_trade_date_from_api ? '#1890ff' : '#8c8c8c',
+                      fontSize: '20px',
                     }}
                     style={{ marginTop: '-12px' }}
                   />
@@ -395,9 +429,10 @@ const Dashboard: React.FC = () => {
               <Col xs={24} sm={12} lg={6}>
                 <Card
                   bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>当日数据准备状态</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
+                  style={cardStyle}
+                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>当日数据准备状态</span>}
+                  headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                  bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                   extra={
                     <Tooltip title="显示当日日线行情数据是否已准备就绪，可用于交易分析">
                       <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -417,6 +452,7 @@ const Dashboard: React.FC = () => {
                     }
                     valueStyle={{
                       color: syncStatus ? (syncStatus.today_data_ready ? '#52c41a' : '#ff4d4f') : '#8c8c8c',
+                      fontSize: '20px',
                     }}
                     style={{ marginTop: '-12px' }}
                   />
@@ -442,16 +478,17 @@ const Dashboard: React.FC = () => {
           {/* 定时任务区块 */}
           <Card
             title="定时任务"
-            style={{ marginBottom: 24 }}
+            style={{ ...cardStyle, marginBottom: 24 }}
           >
             <Row gutter={[16, 16]}>
               {/* 当日总任务数 */}
               <Col xs={24} sm={12} lg={5}>
                 <Card
                   bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>当日总任务数</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
+                  style={cardStyle}
+                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>当日总任务数</span>}
+                  headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                  bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                   extra={
                     <Tooltip title="显示当日所有定时任务的总数量">
                       <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -460,7 +497,7 @@ const Dashboard: React.FC = () => {
                 >
                   <Statistic
                     value={taskStats?.total_tasks ?? 0}
-                    valueStyle={{ color: '#1890ff' }}
+                    valueStyle={{ color: '#1890ff', fontSize: '20px' }}
                     style={{ marginTop: '-12px' }}
                   />
                 </Card>
@@ -470,9 +507,10 @@ const Dashboard: React.FC = () => {
               <Col xs={24} sm={12} lg={5}>
                 <Card
                   bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>进行中任务数</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
+                  style={cardStyle}
+                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>进行中任务数</span>}
+                  headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                  bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                   extra={
                     <Tooltip title="显示当前正在执行中的定时任务数量">
                       <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -482,7 +520,7 @@ const Dashboard: React.FC = () => {
                   <Statistic
                     value={taskStats?.running_tasks ?? 0}
                     prefix={<CheckCircleOutlined style={{ color: '#1890ff' }} />}
-                    valueStyle={{ color: '#1890ff' }}
+                    valueStyle={{ color: '#1890ff', fontSize: '20px' }}
                     style={{ marginTop: '-12px' }}
                   />
                 </Card>
@@ -492,9 +530,10 @@ const Dashboard: React.FC = () => {
               <Col xs={24} sm={12} lg={5}>
                 <Card
                   bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>已完成任务数</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
+                  style={cardStyle}
+                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>已完成任务数</span>}
+                  headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                  bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                   extra={
                     <Tooltip title="显示当日已成功完成的定时任务数量">
                       <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -504,7 +543,7 @@ const Dashboard: React.FC = () => {
                   <Statistic
                     value={taskStats?.completed_tasks ?? 0}
                     prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-                    valueStyle={{ color: '#52c41a' }}
+                    valueStyle={{ color: '#52c41a', fontSize: '20px' }}
                     style={{ marginTop: '-12px' }}
                   />
                 </Card>
@@ -514,9 +553,10 @@ const Dashboard: React.FC = () => {
               <Col xs={24} sm={12} lg={4}>
                 <Card
                   bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>待运行任务数</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
+                  style={cardStyle}
+                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>待运行任务数</span>}
+                  headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                  bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                   extra={
                     <Tooltip title="显示等待执行的定时任务数量">
                       <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -525,7 +565,7 @@ const Dashboard: React.FC = () => {
                 >
                   <Statistic
                     value={taskStats?.pending_tasks ?? 0}
-                    valueStyle={{ color: '#faad14' }}
+                    valueStyle={{ color: '#faad14', fontSize: '20px' }}
                     style={{ marginTop: '-12px' }}
                   />
                 </Card>
@@ -535,9 +575,10 @@ const Dashboard: React.FC = () => {
               <Col xs={24} sm={12} lg={5}>
                 <Card
                   bordered={false}
-                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>出错任务数</span>}
-                  headStyle={{ borderBottom: 'none' }}
-                  bodyStyle={{ textAlign: 'center' }}
+                  style={cardStyle}
+                  title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>出错任务数</span>}
+                  headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                  bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                   extra={
                     <Tooltip title="显示执行失败的定时任务数量">
                       <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -547,7 +588,7 @@ const Dashboard: React.FC = () => {
                   <Statistic
                     value={taskStats?.failed_tasks ?? 0}
                     prefix={<CloseCircleOutlined style={{ color: '#ff4d4f' }} />}
-                    valueStyle={{ color: '#ff4d4f' }}
+                    valueStyle={{ color: '#ff4d4f', fontSize: '20px' }}
                     style={{ marginTop: '-12px' }}
                   />
                 </Card>
@@ -558,7 +599,7 @@ const Dashboard: React.FC = () => {
           {/* 本地数据区块 */}
           <Card
             title="本地数据"
-            style={{ marginBottom: 24 }}
+            style={{ ...cardStyle, marginBottom: 24 }}
           >
             {/* 数据操作日志数据 */}
             <div style={{ marginBottom: 24 }}>
@@ -570,9 +611,10 @@ const Dashboard: React.FC = () => {
                 <Col flex={1}>
                   <Card
                     bordered={false}
-                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>总表数</span>}
-                    headStyle={{ borderBottom: 'none' }}
-                    bodyStyle={{ textAlign: 'center' }}
+                    style={cardStyle}
+                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>总表数</span>}
+                    headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                    bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                     extra={
                       <Tooltip title="显示数据操作日志中的总表数量">
                         <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -582,7 +624,7 @@ const Dashboard: React.FC = () => {
                     <Statistic
                       value={localDataStats?.total_tables ?? 0}
                       prefix={<TableOutlined style={{ color: '#1890ff' }} />}
-                      valueStyle={{ color: '#1890ff' }}
+                      valueStyle={{ color: '#1890ff', fontSize: '20px' }}
                       style={{ marginTop: '-12px' }}
                     />
                   </Card>
@@ -592,9 +634,10 @@ const Dashboard: React.FC = () => {
                 <Col flex={1}>
                   <Card
                     bordered={false}
-                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>成功操作数</span>}
-                    headStyle={{ borderBottom: 'none' }}
-                    bodyStyle={{ textAlign: 'center' }}
+                    style={cardStyle}
+                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>成功操作数</span>}
+                    headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                    bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                     extra={
                       <Tooltip title="显示数据操作日志中成功执行的操作数量">
                         <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -604,7 +647,7 @@ const Dashboard: React.FC = () => {
                     <Statistic
                       value={localDataStats?.success_operations ?? 0}
                       prefix={<CheckOutlined style={{ color: '#52c41a' }} />}
-                      valueStyle={{ color: '#52c41a' }}
+                      valueStyle={{ color: '#52c41a', fontSize: '20px' }}
                       style={{ marginTop: '-12px' }}
                     />
                   </Card>
@@ -614,9 +657,10 @@ const Dashboard: React.FC = () => {
                 <Col flex={1}>
                   <Card
                     bordered={false}
-                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>失败操作数</span>}
-                    headStyle={{ borderBottom: 'none' }}
-                    bodyStyle={{ textAlign: 'center' }}
+                    style={cardStyle}
+                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>失败操作数</span>}
+                    headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                    bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                     extra={
                       <Tooltip title="显示数据操作日志中执行失败的操作数量">
                         <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -626,7 +670,7 @@ const Dashboard: React.FC = () => {
                     <Statistic
                       value={localDataStats?.failed_operations ?? 0}
                       prefix={<CloseOutlined style={{ color: '#ff4d4f' }} />}
-                      valueStyle={{ color: '#ff4d4f' }}
+                      valueStyle={{ color: '#ff4d4f', fontSize: '20px' }}
                       style={{ marginTop: '-12px' }}
                     />
                   </Card>
@@ -636,9 +680,10 @@ const Dashboard: React.FC = () => {
                 <Col flex={1}>
                   <Card
                     bordered={false}
-                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>总插入记录数</span>}
-                    headStyle={{ borderBottom: 'none' }}
-                    bodyStyle={{ textAlign: 'center' }}
+                    style={cardStyle}
+                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>总插入记录数</span>}
+                    headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                    bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                     extra={
                       <Tooltip title="显示数据操作日志中所有插入操作的总记录数">
                         <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -646,9 +691,9 @@ const Dashboard: React.FC = () => {
                     }
                   >
                     <Statistic
-                      value={localDataStats?.total_insert_count ?? 0}
+                      value={formatNumber(localDataStats?.total_insert_count ?? 0)}
                       prefix={<PlusOutlined style={{ color: '#1890ff' }} />}
-                      valueStyle={{ color: '#1890ff' }}
+                      valueStyle={{ color: '#1890ff', fontSize: '20px' }}
                       style={{ marginTop: '-12px' }}
                     />
                   </Card>
@@ -658,9 +703,10 @@ const Dashboard: React.FC = () => {
                 <Col flex={1}>
                   <Card
                     bordered={false}
-                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>总更新记录数</span>}
-                    headStyle={{ borderBottom: 'none' }}
-                    bodyStyle={{ textAlign: 'center' }}
+                    style={cardStyle}
+                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>总更新记录数</span>}
+                    headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                    bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                     extra={
                       <Tooltip title="显示数据操作日志中所有更新操作的总记录数">
                         <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -668,9 +714,9 @@ const Dashboard: React.FC = () => {
                     }
                   >
                     <Statistic
-                      value={localDataStats?.total_update_count ?? 0}
+                      value={formatNumber(localDataStats?.total_update_count ?? 0)}
                       prefix={<EditOutlined style={{ color: '#1890ff' }} />}
-                      valueStyle={{ color: '#1890ff' }}
+                      valueStyle={{ color: '#1890ff', fontSize: '20px' }}
                       style={{ marginTop: '-12px' }}
                     />
                   </Card>
@@ -690,9 +736,10 @@ const Dashboard: React.FC = () => {
                 <Col xs={24} sm={12} lg={6}>
                   <Card
                     bordered={false}
-                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>分表数量</span>}
-                    headStyle={{ borderBottom: 'none' }}
-                    bodyStyle={{ textAlign: 'center' }}
+                    style={cardStyle}
+                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>分表数量</span>}
+                    headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                    bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                     extra={
                       <Tooltip title="显示数据表统计中的分表数量">
                         <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -702,7 +749,7 @@ const Dashboard: React.FC = () => {
                     <Statistic
                       value={localDataStats?.split_tables_count ?? 0}
                       prefix={<DatabaseOutlined style={{ color: '#722ed1' }} />}
-                      valueStyle={{ color: '#722ed1' }}
+                      valueStyle={{ color: '#722ed1', fontSize: '20px' }}
                       style={{ marginTop: '-12px' }}
                     />
                   </Card>
@@ -712,9 +759,10 @@ const Dashboard: React.FC = () => {
                 <Col xs={24} sm={12} lg={6}>
                   <Card
                     bordered={false}
-                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>总记录数</span>}
-                    headStyle={{ borderBottom: 'none' }}
-                    bodyStyle={{ textAlign: 'center' }}
+                    style={cardStyle}
+                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>总记录数</span>}
+                    headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                    bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                     extra={
                       <Tooltip title="显示数据表统计中的总记录数">
                         <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -722,9 +770,9 @@ const Dashboard: React.FC = () => {
                     }
                   >
                     <Statistic
-                      value={localDataStats?.total_records_sum ?? 0}
+                      value={formatNumber(localDataStats?.total_records_sum ?? 0)}
                       prefix={<DatabaseOutlined style={{ color: '#1890ff' }} />}
-                      valueStyle={{ color: '#1890ff' }}
+                      valueStyle={{ color: '#1890ff', fontSize: '20px' }}
                       style={{ marginTop: '-12px' }}
                     />
                   </Card>
@@ -734,9 +782,10 @@ const Dashboard: React.FC = () => {
                 <Col xs={24} sm={12} lg={6}>
                   <Card
                     bordered={false}
-                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal' }}>日记录数</span>}
-                    headStyle={{ borderBottom: 'none' }}
-                    bodyStyle={{ textAlign: 'center' }}
+                    style={cardStyle}
+                    title={<span style={{ color: 'rgba(0, 0, 0, 0.45)', fontWeight: 'normal', fontSize: '14px' }}>日记录数</span>}
+                    headStyle={{ borderBottom: 'none', padding: '16px 20px 0' }}
+                    bodyStyle={{ textAlign: 'center', padding: '16px 20px 20px' }}
                     extra={
                       <Tooltip title="显示数据表统计中的日记录数">
                         <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'pointer' }} />
@@ -744,9 +793,9 @@ const Dashboard: React.FC = () => {
                     }
                   >
                     <Statistic
-                      value={localDataStats?.daily_records_sum ?? 0}
+                      value={formatNumber(localDataStats?.daily_records_sum ?? 0)}
                       prefix={<DatabaseOutlined style={{ color: '#52c41a' }} />}
-                      valueStyle={{ color: '#52c41a' }}
+                      valueStyle={{ color: '#52c41a', fontSize: '20px' }}
                       style={{ marginTop: '-12px' }}
                     />
                   </Card>

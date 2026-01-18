@@ -73,7 +73,14 @@ class CodeConverter:
         if len(code) == 6 and code.isdigit():
             # 优先从数据库查询
             if db:
-                stock = db.query(Tustock).filter(Tustock.symbol == code).first()
+                from zquant.config import settings
+                query = db.query(Tustock).filter(Tustock.symbol == code)
+                
+                # 全局交易所过滤
+                if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                    query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    
+                stock = query.first()
                 if stock:
                     return stock.ts_code
 
@@ -151,7 +158,14 @@ class CodeConverter:
 
         # 批量查询数据库
         if codes_to_query:
-            stocks = db.query(Tustock).filter(Tustock.symbol.in_(codes_to_query)).all()
+            from zquant.config import settings
+            query = db.query(Tustock).filter(Tustock.symbol.in_(codes_to_query))
+            
+            # 全局交易所过滤
+            if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                
+            stocks = query.all()
             stock_map = {stock.symbol: stock.ts_code for stock in stocks}
 
             for code in codes_to_query:
@@ -195,7 +209,14 @@ class CodeConverter:
         if len(code) == 6 and code.isdigit():
             # 从数据库查询
             if db:
-                stocks = db.query(Tustock).filter(Tustock.ts_code.like(f"{code}.%")).all()
+                from zquant.config import settings
+                query = db.query(Tustock).filter(Tustock.ts_code.like(f"{code}.%"))
+                
+                # 全局交易所过滤
+                if hasattr(settings, "DEFAULT_EXCHANGES") and settings.DEFAULT_EXCHANGES:
+                    query = query.filter(Tustock.exchange.in_(settings.DEFAULT_EXCHANGES))
+                    
+                stocks = query.all()
                 for stock in stocks:
                     if stock.ts_code not in possible_codes:
                         possible_codes.append(stock.ts_code)

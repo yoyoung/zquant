@@ -51,6 +51,12 @@ from zquant.schemas.stock_filter import (
     StockFilterBatchResponse,
     StrategyStockQueryRequest,
     StrategyStockResponse,
+    FactorDetailRequest,
+    FactorDetailResponse,
+    StrategyEventRequest,
+    StrategyEventResponse,
+    StockFilterRerunRequest,
+    StockFilterRerunResponse,
 )
 from zquant.services.stock_filter import StockFilterService
 from zquant.services.stock_filter_task import StockFilterTaskService
@@ -391,3 +397,72 @@ def query_strategy_results(
     except Exception as e:
         logger.error(f"查询策略选股结果失败: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="查询策略选股结果失败")
+
+
+@router.post("/factor-details", response_model=FactorDetailResponse, summary="获取因子明细数据")
+def get_factor_details(
+    request: FactorDetailRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """获取因子明细数据"""
+    try:
+        result = StockFilterService.get_factor_details(
+            db=db,
+            ts_code=request.ts_code,
+            trade_date=request.trade_date,
+            detail_type=request.detail_type,
+            days=request.days,
+        )
+        return FactorDetailResponse(
+            ts_code=request.ts_code,
+            detail_type=request.detail_type,
+            items=result.get("items", []),
+            thresholds=result.get("thresholds"),
+            current_date_data=result.get("current_date_data"),
+        )
+    except Exception as e:
+        logger.error(f"获取因子明细失败: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="获取因子明细失败")
+
+
+@router.post("/strategy-events", response_model=StrategyEventResponse, summary="查询技术事件")
+def get_strategy_events(
+    request: StrategyEventRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """查询技术事件（策略命中记录）"""
+    try:
+        items, total = StockFilterService.get_strategy_events(
+            db=db,
+            ts_code=request.ts_code,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            skip=request.skip,
+            limit=request.limit,
+        )
+        return StrategyEventResponse(items=items, total=total, skip=request.skip, limit=request.limit)
+    except Exception as e:
+        logger.error(f"查询技术事件失败: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="查询技术事件失败")
+
+
+@router.post("/rerun", response_model=StockFilterRerunResponse, summary="因子重跑")
+def rerun_stock_filter(
+    request: StockFilterRerunRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """重跑指定股票的所有策略（日期区间）"""
+    try:
+        result = StockFilterService.rerun_strategies_for_code(
+            db=db,
+            ts_code=request.ts_code,
+            start_date=request.start_date,
+            end_date=request.end_date,
+        )
+        return StockFilterRerunResponse(**result)
+    except Exception as e:
+        logger.error(f"因子重跑失败: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="因子重跑失败")

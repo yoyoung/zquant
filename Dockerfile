@@ -19,13 +19,10 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /app/web
 
 # 复制前端依赖文件
-COPY web/package.json web/yarn.lock* web/package-lock.json* ./
+COPY web/package.json web/yarn.lock ./
 
 # 安装前端依赖
-RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
-    elif [ -f package-lock.json ]; then npm ci; \
-    else echo "Lockfile not found." && exit 1; \
-    fi
+RUN yarn install --frozen-lockfile
 
 # 复制前端源代码
 COPY web/ ./
@@ -35,7 +32,7 @@ ENV NODE_ENV=production
 ENV REACT_APP_ENV=production
 
 # 构建前端（UmiJS 会自动使用 Terser 进行混淆和压缩）
-RUN npm run build
+RUN yarn build
 
 # 阶段2: 后端混淆
 FROM python:3.11-slim AS backend-obfuscator
@@ -116,7 +113,14 @@ def obfuscate_package():\n\
     \n\
     # 使用 PyArmor 混淆（使用 restrict 模式增强安全性）\n\
     print("执行 PyArmor 混淆...")\n\
-    os.system(f\'pyarmor gen --recursive --restrict --output {OBFUSCATE_DIR} {SOURCE_DIR} --exclude "tests,alembic,scripts/init_*.py,scripts/*test*.py,scripts/*migrate*.py"\')\n\
+    import subprocess\n\
+    exclude_patterns = "tests,alembic,scripts/init_*.py,scripts/*test*.py,scripts/*migrate*.py"\n\
+    subprocess.run([\n\
+        "pyarmor", "gen", "--recursive", "--restrict",\n\
+        "--output", OBFUSCATE_DIR,\n\
+        SOURCE_DIR,\n\
+        "--exclude", exclude_patterns\n\
+    ], check=True)\n\
     \n\
     print("混淆完成!")\n\
     print(f"混淆后的代码位于: {OBFUSCATE_DIR}")\n\
@@ -164,9 +168,10 @@ COPY --from=frontend-builder --chown=zquant:zquant /app/web/dist ./web/dist
 COPY docker/nginx.conf /etc/nginx/nginx.conf
 COPY docker/nginx-site.conf /etc/nginx/conf.d/default.conf
 
-# 复制启动脚本
+# 复制启动脚本（处理 Windows CRLF 行尾符）
 COPY docker/docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # 创建必要的目录
 RUN mkdir -p /app/logs && \

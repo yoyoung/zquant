@@ -163,6 +163,8 @@ zquant/
 #### 前端优化
 - ✅ **Hook统一**: useDataValidation和useDataSync Hook，统一数据校验和同步逻辑
 - ✅ **组件抽象**: DataTablePage通用组件，通过配置驱动，减少重复代码
+- ✅ **统一下拉框体验**: 所有下拉框自动添加"全部"选项并默认选中，提升用户体验
+- ✅ **组件封装**: 新增 `SelectWithAll` 和 `ProFormSelectWithAll` 组件，简化开发，统一UI体验
 
 #### 代码质量
 - ✅ **代码重复度**: 降低50%+，通过Repository和工具类显著提升代码复用性
@@ -352,6 +354,7 @@ npm start
 - 📖 [数据库初始化指南](docs/database_init.md) - 数据库初始化流程和表名规范
 - 📖 [策略管理文档](docs/strategy_management.md) - 策略管理系统完整使用指南
 - 📖 [调度器指南](docs/scheduler_guide.md) - 定时任务调度系统使用指南
+- 📖 [前端组件开发指南](docs/frontend_component_guide.md) - 前端组件使用说明和最佳实践
 - 📖 [重构总结](docs/refactoring_summary.md) - 项目架构重构说明
 - 📖 [脚本使用说明](zquant/scripts/README.md) - 所有初始化和管理脚本的使用说明
 
